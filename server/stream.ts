@@ -30,6 +30,8 @@ export async function handleReportStream(req: Request, res: Response) {
   // 客户端断开时避免写入已关闭 socket 触发未捕获错误
   res.on("error", () => { /* socket closed */ });
   res.flushHeaders?.();
+  let sequence = 0;
+  const emit = (payload: Record<string, unknown>) => writeSse(res, { ...payload, sequence: ++sequence });
 
   let input;
   try {
@@ -53,12 +55,12 @@ export async function handleReportStream(req: Request, res: Response) {
     await generateAnalysisStream(analysis, event => {
       if (event.type === "delta") {
         resultMarkdown += event.text;
-        writeSse(res, { type: "delta", text: event.text });
+        emit({ type: "delta", text: event.text });
       } else if (event.type === "restart") {
         resultMarkdown = "";
-        writeSse(res, { type: "restart" });
+        emit({ type: "restart" });
       } else {
-        writeSse(res, {
+        emit({
           type: "done",
           report: { ...report, resultMarkdown },
           previewChart: previewChart ?? null,
@@ -70,10 +72,10 @@ export async function handleReportStream(req: Request, res: Response) {
     res.end();
   } catch (error) {
     if (error instanceof TRPCError) {
-      writeSse(res, { type: "error", message: error.message });
+      emit({ type: "error", message: error.message });
     } else {
       console.error("[Stream] report stream failed", error);
-      writeSse(res, { type: "error", message: "生成报告时出现异常，请稍后重试" });
+      emit({ type: "error", message: "生成报告时出现异常，请稍后重试" });
     }
     res.end();
   }

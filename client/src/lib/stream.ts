@@ -23,7 +23,7 @@ export type StreamReportHandlers = {
   onError: (message: string) => void;
 };
 
-function parseSseEvents(accumulated: string): { remaining: string; events: string[] } {
+export function parseSseEvents(accumulated: string): { remaining: string; events: string[] } {
   const blocks = accumulated.split(/\r?\n\r?\n/);
   const remaining = blocks.pop() ?? "";
   const events: string[] = [];
@@ -64,6 +64,8 @@ export function streamReport(payload: Record<string, unknown>, handlers: StreamR
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let lastSequence = 0;
+      let terminalEvent = false;
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -71,19 +73,30 @@ export function streamReport(payload: Record<string, unknown>, handlers: StreamR
         const { remaining, events } = parseSseEvents(buffer);
         buffer = remaining;
         for (const event of events) {
-          if (!event) continue;
+          if (!event || terminalEvent) continue;
           let parsed: Record<string, unknown>;
           try {
             parsed = JSON.parse(event) as Record<string, unknown>;
           } catch {
             continue;
           }
+          const sequence = typeof parsed.sequence === "number" ? parsed.sequence : undefined;
+          if (sequence !== undefined) {
+            if (sequence <= lastSequence) continue;
+            lastSequence = sequence;
+          }
           if (parsed.type === "delta") handlers.onDelta(typeof parsed.text === "string" ? parsed.text : "");
           else if (parsed.type === "restart") handlers.onRestart();
-          else if (parsed.type === "done") handlers.onDone(parsed as unknown as StreamReportResult);
-          else if (parsed.type === "error") handlers.onError(typeof parsed.message === "string" ? parsed.message : "生成报告时出现异常");
+          else if (parsed.type === "done") {
+            terminalEvent = true;
+            handlers.onDone(parsed as unknown as StreamReportResult);
+          } else if (parsed.type === "error") {
+            terminalEvent = true;
+            handlers.onError(typeof parsed.message === "string" ? parsed.message : "生成报告时出现异常");
+          }
         }
       }
+      if (!terminalEvent && !controller.signal.aborted) handlers.onError("模型流在完成事件前中断，请重试");
     } catch (error) {
       if (!controller.signal.aborted) {
         handlers.onError(error instanceof Error ? error.message : "网络连接中断，报告未完成");

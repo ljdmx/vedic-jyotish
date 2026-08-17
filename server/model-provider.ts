@@ -124,6 +124,7 @@ export async function* streamCompatibleModel(request: CompatibleRequest): AsyncG
   const selection = resolveModelSelection(request.selection);
   const controller = new AbortController();
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let sawDone = false;
   const armIdle = () => {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => controller.abort(new Error("模型流式响应超时")), STREAM_IDLE_TIMEOUT_MS);
@@ -156,7 +157,11 @@ export async function* streamCompatibleModel(request: CompatibleRequest): AsyncG
       const { remaining, events } = extractSseEvents(buffer);
       buffer = remaining;
       for (const raw of events) {
-        if (!raw || raw === "[DONE]") continue;
+        if (!raw) continue;
+        if (raw === "[DONE]") {
+          sawDone = true;
+          return;
+        }
         let parsed: CompatibleResponse;
         try {
           parsed = JSON.parse(raw) as CompatibleResponse;
@@ -167,6 +172,7 @@ export async function* streamCompatibleModel(request: CompatibleRequest): AsyncG
         if (text) yield text;
       }
     }
+    if (!sawDone) throw new Error("模型流在完成标记前中断");
   } finally {
     if (idleTimer) clearTimeout(idleTimer);
   }

@@ -2,6 +2,7 @@ import VedicChart from "@/components/VedicChart";
 import { trpc } from "@/lib/trpc";
 import { streamReport } from "@/lib/stream";
 import { renderLightMarkdown, splitStableTail } from "@/lib/light-markdown";
+import { appendStableMarkdown, clearStreamRenderTargets } from "@/lib/stream-render";
 import { shouldScheduleLocationSearch } from "@/lib/location-search";
 import type { VedicChart as VedicChartData } from "@shared/vedic-engine";
 import type { KpSubLordRow } from "@shared/kp";
@@ -133,10 +134,12 @@ export default function Home() {
   /** 流式期间直接写纯文本 DOM，绕过 React 重渲染与 markdown 解析，保证最流畅。 */
   const rawReportRef = useRef<HTMLDivElement>(null);
   const streamingRef = useRef(false);
-  /** 已稳定块的上次渲染指纹（避免长文本每次 flush 全量重建）。 */
-  const lastStableHtmlRef = useRef("");
+  /** 已追加至 DOM 的稳定正文；只渲染新增闭合块，避免长报告全量重建。 */
+  const renderedStableTextRef = useRef("");
   /** 最近一次收到模型增量的时间（用于等待呼吸提示）。 */
   const lastChunkAtRef = useRef(Date.now());
+  const [streamWaiting, setStreamWaiting] = useState(false);
+  const streamWaitingRef = useRef(false);
   /** 滚动跟随节流（减少强制布局频率）。 */
   const lastScrollCheckRef = useRef(0);
   /** 流式渲染节流：约 100ms 一次批量把累积文本写入 DOM。 */
@@ -144,12 +147,12 @@ export default function Home() {
   const flushPendingReport = () => {
     reportFlushRef.current = null;
     if (streamingRef.current && rawReportRef.current) {
-      // 流式：行级增量渲染 —— 稳定块只在变化时重建；尾部活动块按形态选择最快写入
+      // 流式：稳定块仅追加新增的闭合内容；尾部活动块按形态选择最快写入。
       const { stable, tail } = splitStableTail(pendingReportRef.current);
-      if (stable !== lastStableHtmlRef.current) {
-        const stableEl = rawReportRef.current.querySelector<HTMLDivElement>(".rm-stable");
-        if (stableEl) stableEl.innerHTML = renderLightMarkdown(stable);
-        lastStableHtmlRef.current = stable;
+      const stableEl = rawReportRef.current.querySelector<HTMLDivElement>(".rm-stable");
+      const previousStable = renderedStableTextRef.current;
+      if (stableEl && stable !== previousStable) {
+        renderedStableTextRef.current = appendStableMarkdown(stableEl, previousStable, stable);
       }
       const tailEl = rawReportRef.current.querySelector<HTMLDivElement>(".rm-tail");
       if (tailEl) {
@@ -163,6 +166,10 @@ export default function Home() {
         }
       }
       lastChunkAtRef.current = Date.now();
+      if (streamWaitingRef.current) {
+        streamWaitingRef.current = false;
+        setStreamWaiting(false);
+      }
       // 滚动跟随节流：约 300ms 才做一次强制布局检查
       const now = performance.now();
       if (now - lastScrollCheckRef.current > 300) {
@@ -177,6 +184,7 @@ export default function Home() {
     }
   };
   const appendReportDelta = (text: string) => {
+    if (!text) return;
     pendingReportRef.current += text;
     if (reportFlushRef.current === null) {
       reportFlushRef.current = window.setTimeout(flushPendingReport, FLUSH_INTERVAL_MS) as unknown as number;
@@ -187,10 +195,15 @@ export default function Home() {
     pendingReportRef.current = "";
     if (reportFlushRef.current !== null) { window.clearTimeout(reportFlushRef.current); reportFlushRef.current = null; }
     if (rawReportRef.current) {
-      rawReportRef.current.querySelector<HTMLDivElement>(".rm-stable")?.replaceChildren();
-      rawReportRef.current.querySelector<HTMLDivElement>(".rm-tail")?.replaceChildren();
+      clearStreamRenderTargets(
+        rawReportRef.current.querySelector<HTMLDivElement>(".rm-stable"),
+        rawReportRef.current.querySelector<HTMLDivElement>(".rm-tail"),
+      );
     }
-    lastStableHtmlRef.current = "";
+    renderedStableTextRef.current = "";
+    lastChunkAtRef.current = Date.now();
+    streamWaitingRef.current = false;
+    setStreamWaiting(false);
     // 预热 markdown 渲染器，避免完成后出现“正在展开卷轴”的加载态
     void import("streamdown");
     streamingRef.current = true;
@@ -203,13 +216,20 @@ export default function Home() {
         pendingReportRef.current = "";
         if (reportFlushRef.current !== null) { window.clearTimeout(reportFlushRef.current); reportFlushRef.current = null; }
         if (rawReportRef.current) {
-          rawReportRef.current.querySelector<HTMLDivElement>(".rm-stable")?.replaceChildren();
-          rawReportRef.current.querySelector<HTMLDivElement>(".rm-tail")?.replaceChildren();
+          clearStreamRenderTargets(
+            rawReportRef.current.querySelector<HTMLDivElement>(".rm-stable"),
+            rawReportRef.current.querySelector<HTMLDivElement>(".rm-tail"),
+          );
         }
-        lastStableHtmlRef.current = "";
+        renderedStableTextRef.current = "";
+        lastChunkAtRef.current = Date.now();
+        streamWaitingRef.current = false;
+        setStreamWaiting(false);
       },
       onDone: data => {
         streamingRef.current = false;
+        streamWaitingRef.current = false;
+        setStreamWaiting(false);
         const report: MemoryReport = { ...data.report, createdAt: new Date(data.report.createdAt) };
         setReports(current => [report, ...current].slice(0, 12));
         setReportText(report.resultMarkdown);
@@ -223,6 +243,9 @@ export default function Home() {
       },
       onError: message => {
         streamingRef.current = false;
+        streamWaitingRef.current = false;
+        setStreamWaiting(false);
+        if (pendingReportRef.current) setReportText(pendingReportRef.current);
         setStreaming(false);
         streamAbortRef.current = null;
         toast.error(message);
@@ -233,6 +256,8 @@ export default function Home() {
     streamAbortRef.current?.();
     streamAbortRef.current = null;
     streamingRef.current = false;
+    streamWaitingRef.current = false;
+    setStreamWaiting(false);
     if (reportFlushRef.current !== null) { window.clearTimeout(reportFlushRef.current); reportFlushRef.current = null; }
     setReportText(pendingReportRef.current);
     setStreaming(false);
@@ -241,6 +266,8 @@ export default function Home() {
     streamAbortRef.current?.();
     streamAbortRef.current = null;
     streamingRef.current = false;
+    streamWaitingRef.current = false;
+    setStreamWaiting(false);
     if (reportFlushRef.current !== null) { window.clearTimeout(reportFlushRef.current); reportFlushRef.current = null; }
     pendingReportRef.current = "";
     setStreaming(false);
@@ -263,6 +290,10 @@ export default function Home() {
     const timer = window.setInterval(() => {
       if (!streamingRef.current || !rawReportRef.current) return;
       const waiting = Date.now() - lastChunkAtRef.current > 500;
+      if (waiting !== streamWaitingRef.current) {
+        streamWaitingRef.current = waiting;
+        setStreamWaiting(waiting);
+      }
       rawReportRef.current.classList.toggle("is-waiting", waiting);
     }, 300);
     return () => window.clearInterval(timer);
@@ -413,7 +444,7 @@ export default function Home() {
         {active === "prashna" && <PrashnaPanel busy={busy} location={prashnaLocation} setLocation={setPrashnaLocation} resolvePlace={resolvePrashnaPlace} question={question} setQuestion={setQuestion} run={() => { const questionCheck = validatePrashnaQuestion(question); if (!questionCheck.valid) return toast.error(questionCheck.error); const locationPayload = prashnaPayload(); if (!locationPayload) return; const requestedModel = requestModelConfig(); if (!requestedModel) return; startReportStream({ stack: "prashna", module: "prashna", question: questionCheck.question, modelConfig: requestedModel, prashnaLocation: locationPayload }); }} />}
         {active === "tajika" && <TajikaPanel busy={busy} year={year} setYear={setYear} run={() => run("tajika", "tajika", { year: Number(year) })} />}
         {active === "kp" && <KpPanel busy={busy} question={question} setQuestion={setQuestion} extraContext={extraContext} setExtraContext={setExtraContext} table={kpTableQuery.data || []} kpNumber={kpNumber} setKpNumber={setKpNumber} run={() => run("kp", "kp", { kpNumber: Number(kpNumber) })} />}
-        {(reportText || streaming) && <article className="report-drawer"><div className="report-drawer__head"><div><div className="eyebrow">REPORT · THIS SESSION ONLY</div><h3>{reportTitle}</h3></div>{streaming && <button type="button" className="report-stop" onClick={stopGeneration} aria-label="停止生成当前报告"><Square size={11} /> 停止生成</button>}</div><div className="report-meta">{streaming ? <span>正在书写…</span> : <><span className="report-seal" aria-hidden="true" /><span>已生成 · {reportText ? reportText.length : 0} 字 · 仅保留在本次会话</span></>}</div>{streaming && <><div className="report-inkwell"><Loader2 className="animate-spin" size={15} /> 模型正在生成首段内容…</div><div className="report-content report-content--raw" ref={reportScrollRef} role="region" aria-label="本次报告内容实时生成中"><div className="report-raw" ref={rawReportRef}><div className="rm-stable" /><div className="rm-tail" /></div></div></>}{!streaming && reportText && <p className="report-reading-note">完整报告已在当前页面连续展开；可继续向下滚动页面，或使用 Page Down / End 键阅读至末尾。</p>}{!streaming && reportText && <div className="report-content" ref={reportScrollRef} tabIndex={0} role="region" aria-label="本次完整报告内容；报告已随页面连续展开，可使用 Page Down 或 End 键继续阅读" onKeyDown={scrollPageWithKeyboard}><Suspense fallback={<div className="report-loading"><Loader2 className="animate-spin" size={16} /> 正在展开卷轴…</div>}><Streamdown isAnimating={false} controls={false}>{reportText}</Streamdown></Suspense></div>}</article>}
+        {(reportText || streaming) && <article className="report-drawer"><div className="report-drawer__head"><div><div className="eyebrow">REPORT · THIS SESSION ONLY</div><h3>{reportTitle}</h3></div>{streaming && <button type="button" className="report-stop" onClick={stopGeneration} aria-label="停止生成当前报告"><Square size={11} /> 停止生成</button>}</div><div className="report-meta">{streaming ? <span className={streamWaiting ? "stream-waiting" : undefined} role="status" aria-live="polite">{streamWaiting ? "模型正在推理，等待下一段内容…" : "正在书写…"}</span> : <><span className="report-seal" aria-hidden="true" /><span>已生成 · {reportText ? reportText.length : 0} 字 · 仅保留在本次会话</span></>}</div>{streaming && <><div className="report-inkwell"><Loader2 className="animate-spin" size={15} /> 模型正在生成首段内容…</div><div className="report-content report-content--raw" ref={reportScrollRef} role="region" aria-label="本次报告内容实时生成中"><div className="report-raw" ref={rawReportRef}><div className="rm-stable" /><div className="rm-tail" /></div></div></>}{!streaming && reportText && <p className="report-reading-note">完整报告已在当前页面连续展开；可继续向下滚动页面，或使用 Page Down / End 键阅读至末尾。</p>}{!streaming && reportText && <div className="report-content" ref={reportScrollRef} tabIndex={0} role="region" aria-label="本次完整报告内容；报告已随页面连续展开，可使用 Page Down / End 键继续阅读" onKeyDown={scrollPageWithKeyboard}><Suspense fallback={<div className="report-loading"><Loader2 className="animate-spin" size={16} /> 正在展开卷轴…</div>}><Streamdown isAnimating={false} controls={false}>{reportText}</Streamdown></Suspense></div>}</article>}
       </section><aside className="panel chart-side">{isolatedStack ? <IsolatedStackRail stack={active} reports={visibleReports} showAll={showAllReports} onToggle={() => setShowAllReports(current => !current)} onOpen={openStoredReport} /> : <><>{selectedChart ? <ChartRail chart={selectedChart.chart} /> : <div className="no-chart"><div><div className="empty-chart-sigil" aria-hidden="true"><span>观</span></div><strong className="serif text-[#292b2a] block mb-1">尚未建立本次工作盘</strong>填写出生信息即可临时排盘；页面刷新后不会保留。</div></div>}</><hr className="soft-rule" /><MemoryRail reports={visibleReports} showAll={showAllReports} onToggle={() => setShowAllReports(current => !current)} onOpen={openStoredReport} /></>}</aside>      </div>
     </main>
     {locationPickerOpen && pickerTarget && <AmapLocationPickerDialog jsApiKey={mapConfigQuery.data?.jsApiKey || null} initialAddress={pickerTarget === "prashna" ? prashnaLocation.place : pickerTarget === "partner" ? partner.place : birth.place} initialLatitude={pickerTarget === "prashna" ? prashnaLocation.latitude : pickerTarget === "partner" ? partner.latitude : birth.latitude} initialLongitude={pickerTarget === "prashna" ? prashnaLocation.longitude : pickerTarget === "partner" ? partner.longitude : birth.longitude} onClose={closeLocationPicker} onConfirm={location => applyMapLocation(pickerTarget, location)} />}
