@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 describe("Agnes 默认模型凭据", () => {
-  it("能通过服务端读取模型目录", async () => {
+  it("仅在服务端部署环境中可用", () => {
     const apiKey = process.env.AGNES_API_KEY;
     expect(apiKey, "AGNES_API_KEY 必须仅存在于服务端部署环境").toBeTruthy();
+  });
 
+  const runExternalServiceTests = process.env.RUN_EXTERNAL_SERVICE_TESTS === "1";
+  it.runIf(runExternalServiceTests)("能通过外部网络读取模型目录", async () => {
+    const apiKey = process.env.AGNES_API_KEY;
     const response = await fetch("https://api.agnes-ai.cn/v1/models", {
       headers: { Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(12_000),

@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 describe("production service credentials", () => {
-  it("validates the configured Agnes model credential against the model catalog", async () => {
+  const runExternalServiceTests = process.env.RUN_EXTERNAL_SERVICE_TESTS === "1";
+
+  it("keeps required service credentials server-side", () => {
     const apiKey = process.env.AGNES_API_KEY;
     expect(apiKey).toBeTruthy();
+    expect(process.env.AMAP_WEB_SERVICE_KEY).toBeTruthy();
+    expect(process.env.AMAP_JS_API_KEY).toBeTruthy();
+    expect(process.env.AMAP_SECURITY_JS_CODE).toBeTruthy();
+  });
 
+  it.runIf(runExternalServiceTests)("validates the configured Agnes model credential against the model catalog", async () => {
+    const apiKey = process.env.AGNES_API_KEY;
     const response = await fetch("https://api.agnes-ai.cn/v1/models", {
       headers: { Authorization: `Bearer ${apiKey}` },
     });
@@ -12,7 +20,7 @@ describe("production service credentials", () => {
     expect(response.ok).toBe(true);
   }, 20_000);
 
-  it("validates the configured AMap Web Service credential with a geocoding request", async () => {
+  it.runIf(runExternalServiceTests)("validates the configured AMap Web Service credential with a geocoding request", async () => {
     const apiKey = process.env.AMAP_WEB_SERVICE_KEY;
     expect(apiKey).toBeTruthy();
 
