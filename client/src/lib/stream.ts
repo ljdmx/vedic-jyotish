@@ -1,0 +1,94 @@
+/**
+ * AI 报告流式客户端：POST /api/stream/report，以 SSE 增量接收模型输出。
+ * 事件负载（单行 JSON）：
+ *   {"type":"delta","text":"..."}     增量正文
+ *   {"type":"restart"}                P1–P12 重试清屏
+ *   {"type":"done","report":{...},...} 结束并携带完整报告
+ *   {"type":"error","message":"..."}  失败
+ * 返回取消函数；组件卸载或切换模块时应调用以避免无用写入。
+ */
+
+export type StreamReportResult = {
+  type: "done";
+  report: { id: number; stack: string; title: string; resultMarkdown: string; createdAt: string; persistence: "memory-only" };
+  previewChart: unknown;
+  rectification: unknown;
+  synastry: unknown;
+};
+
+export type StreamReportHandlers = {
+  onDelta: (text: string) => void;
+  onRestart: () => void;
+  onDone: (result: StreamReportResult) => void;
+  onError: (message: string) => void;
+};
+
+function parseSseEvents(accumulated: string): { remaining: string; events: string[] } {
+  const blocks = accumulated.split(/\r?\n\r?\n/);
+  const remaining = blocks.pop() ?? "";
+  const events: string[] = [];
+  for (const block of blocks) {
+    for (const line of block.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("data:")) events.push(trimmed.slice(5).trim());
+    }
+  }
+  return { remaining, events };
+}
+
+export function streamReport(payload: Record<string, unknown>, handlers: StreamReportHandlers): () => void {
+  const controller = new AbortController();
+  (async () => {
+    try {
+      const response = await fetch("/api/stream/report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        let message = `报告请求失败（HTTP ${response.status}）`;
+        try {
+          const data = (await response.json()) as { error?: string };
+          if (data?.error) message = data.error;
+        } catch {
+          /* keep default message */
+        }
+        handlers.onError(message);
+        return;
+      }
+      if (!response.body) {
+        handlers.onError("当前浏览器不支持流式响应，请更换现代浏览器后重试");
+        return;
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const { remaining, events } = parseSseEvents(buffer);
+        buffer = remaining;
+        for (const event of events) {
+          if (!event) continue;
+          let parsed: Record<string, unknown>;
+          try {
+            parsed = JSON.parse(event) as Record<string, unknown>;
+          } catch {
+            continue;
+          }
+          if (parsed.type === "delta") handlers.onDelta(typeof parsed.text === "string" ? parsed.text : "");
+          else if (parsed.type === "restart") handlers.onRestart();
+          else if (parsed.type === "done") handlers.onDone(parsed as unknown as StreamReportResult);
+          else if (parsed.type === "error") handlers.onError(typeof parsed.message === "string" ? parsed.message : "生成报告时出现异常");
+        }
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        handlers.onError(error instanceof Error ? error.message : "网络连接中断，报告未完成");
+      }
+    }
+  })();
+  return () => controller.abort();
+}

@@ -3,11 +3,11 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { serveStatic, setupVite } from "./vite";
+import { serveStatic } from "./vite";
+import { handleReportStream } from "../stream";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -35,7 +35,26 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
-  registerOAuthRoutes(app);
+  app.use("/_AMapService", async (req, res) => {
+    const securityJsCode = process.env.AMAP_SECURITY_JS_CODE;
+    if (!securityJsCode) {
+      return res.status(503).json({ status: "0", info: "高德地图安全密钥尚未配置" });
+    }
+
+    const upstream = new URL(
+      req.originalUrl.replace("/_AMapService", "") || "/",
+      "https://restapi.amap.com"
+    );
+    upstream.searchParams.set("jscode", securityJsCode);
+
+    try {
+      const response = await fetch(upstream);
+      const body = await response.text();
+      res.status(response.status).type(response.headers.get("content-type") || "application/json").send(body);
+    } catch {
+      res.status(502).json({ status: "0", info: "高德地图服务暂时不可用" });
+    }
+  });
   // tRPC API
   app.use(
     "/api/trpc",
@@ -44,12 +63,11 @@ async function startServer() {
       createContext,
     })
   );
-  // development mode uses Vite, production mode uses static files
-  if (process.env.NODE_ENV === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
+  // AI 报告流式端点：SSE 实时输出，与 report.run 共享校验逻辑
+  app.post("/api/stream/report", handleReportStream);
+  // 管理预览经由代理提供页面；Vite HMR 升级连接无法可靠透传，并会向浏览器
+  // 注入失败的 WebSocket 客户端。始终服务已构建静态产物，避免开发态脚本进入预览。
+  serveStatic(app);
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);

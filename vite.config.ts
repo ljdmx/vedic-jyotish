@@ -166,7 +166,8 @@ export default defineConfig({
   publicDir: path.resolve(import.meta.dirname, "client", "public"),
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
-    emptyOutDir: true,
+    // 静态预览直接服务此目录；保留旧产物直到新产物覆盖，避免构建期间出现 404/ENOENT。
+    emptyOutDir: false,
   },
   server: {
     host: true,
