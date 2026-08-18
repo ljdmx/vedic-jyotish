@@ -13,6 +13,72 @@ type CompatibleContent = string | CompatibleTextPart[];
 type CompatibleStreamChoice = { message?: { content?: CompatibleContent }; delta?: { content?: CompatibleContent }; finish_reason?: string | null };
 export type CompatibleResponse = { choices?: Array<CompatibleStreamChoice> };
 
+const HIDDEN_PROCESS_TAG = /<(thinking|analysis|reasoning|scratchpad)(?:\s[^>]*)?>/i;
+const HIDDEN_PROCESS_CLOSE = /<\/(thinking|analysis|reasoning|scratchpad)>/i;
+const HIDDEN_PROCESS_FENCE = /```(?:thinking|analysis|reasoning|scratchpad)[^\n]*\r?\n/i;
+
+/**
+ * 将兼容模型偶尔混入正文的思考草稿剔除，只保留可直接交付给用户的报告文本。
+ * 该过滤仅处理明确的过程标签或 fenced 块，不改写正常 Markdown 结论与依据。
+ */
+export function sanitizeUserFacingText(content: string) {
+  let remaining = content;
+  let visible = "";
+  for (;;) {
+    const tagMatch = remaining.match(HIDDEN_PROCESS_TAG);
+    const fenceMatch = remaining.match(HIDDEN_PROCESS_FENCE);
+    const tagIndex = tagMatch?.index ?? -1;
+    const fenceIndex = fenceMatch?.index ?? -1;
+    const nextIsFence = fenceIndex >= 0 && (tagIndex < 0 || fenceIndex < tagIndex);
+    const nextIndex = nextIsFence ? fenceIndex : tagIndex;
+    if (nextIndex < 0) return `${visible}${remaining}`.trim();
+    visible += remaining.slice(0, nextIndex);
+    const afterOpen = remaining.slice(nextIndex + (nextIsFence ? fenceMatch![0].length : tagMatch![0].length));
+    const closeIndex = nextIsFence ? afterOpen.indexOf("```") : (afterOpen.search(HIDDEN_PROCESS_CLOSE));
+    if (closeIndex < 0) return visible.trim();
+    remaining = afterOpen.slice(closeIndex + (nextIsFence ? 3 : afterOpen.match(HIDDEN_PROCESS_CLOSE)![0].length));
+  }
+}
+
+/** 流式版本保留跨分块的隐藏状态，确保思考标签被拆开时也不会闪现到页面。 */
+export function createUserFacingTextFilter() {
+  let buffered = "";
+  let hiddenUntil: "tag" | "fence" | null = null;
+  return (chunk: string) => {
+    let remaining = buffered + chunk;
+    buffered = "";
+    let visible = "";
+    for (;;) {
+      if (hiddenUntil) {
+        const closeIndex = hiddenUntil === "fence" ? remaining.indexOf("```") : remaining.search(HIDDEN_PROCESS_CLOSE);
+        if (closeIndex < 0) return visible;
+        const closeMatch = hiddenUntil === "fence" ? "```" : remaining.match(HIDDEN_PROCESS_CLOSE)![0];
+        remaining = remaining.slice(closeIndex + closeMatch.length);
+        hiddenUntil = null;
+        continue;
+      }
+      const tagMatch = remaining.match(HIDDEN_PROCESS_TAG);
+      const fenceMatch = remaining.match(HIDDEN_PROCESS_FENCE);
+      const tagIndex = tagMatch?.index ?? -1;
+      const fenceIndex = fenceMatch?.index ?? -1;
+      const nextIsFence = fenceIndex >= 0 && (tagIndex < 0 || fenceIndex < tagIndex);
+      const nextIndex = nextIsFence ? fenceIndex : tagIndex;
+      if (nextIndex < 0) {
+        const partialProcessStart = remaining.match(/<(?:t|th|thi|thin|think|thinki|thinkin|a|an|ana|anal|analy|analys|analysi|analysi|r|re|rea|reas|reaso|reason|reasoni|reasonin|s|sc|scr|scra|scrat|scratc|scratch|scratchp|scratchpa)$/i);
+        if (partialProcessStart?.index !== undefined) {
+          visible += remaining.slice(0, partialProcessStart.index);
+          buffered = partialProcessStart[0];
+          return visible;
+        }
+        return visible + remaining;
+      }
+      visible += remaining.slice(0, nextIndex);
+      remaining = remaining.slice(nextIndex + (nextIsFence ? fenceMatch![0].length : tagMatch![0].length));
+      hiddenUntil = nextIsFence ? "fence" : "tag";
+    }
+  };
+}
+
 const PROVIDER_IDS = new Set(Object.keys(MODEL_PROVIDERS));
 const TRUSTED_BASE_URLS = new Set(Object.values(MODEL_PROVIDERS).map((provider) => provider.baseUrl));
 const forbiddenHosts = new Set(["localhost", "0.0.0.0", "127.0.0.1", "::1"]);
@@ -46,10 +112,10 @@ export function resolveModelSelection(input?: TemporaryModelConfig) {
 
 export function extractCompatibleText(response: CompatibleResponse) {
   const content = response.choices?.[0]?.message?.content;
-  if (typeof content === "string") return content.trim();
+  if (typeof content === "string") return sanitizeUserFacingText(content);
   if (!Array.isArray(content)) return "";
 
-  return content
+  return sanitizeUserFacingText(content
     .map(part => {
       if (!part || typeof part !== "object") return "";
       if (typeof part.text === "string") return part.text;
@@ -57,8 +123,7 @@ export function extractCompatibleText(response: CompatibleResponse) {
       return "";
     })
     .filter(Boolean)
-    .join("\n")
-    .trim();
+    .join("\n"));
 }
 
 export async function invokeCompatibleModel(request: CompatibleRequest): Promise<CompatibleResponse> {
@@ -129,6 +194,7 @@ export async function* streamCompatibleModel(request: CompatibleRequest): AsyncG
   else request.signal?.addEventListener("abort", cancelUpstream, { once: true });
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let sawDone = false;
+  const filterVisibleText = createUserFacingTextFilter();
   const armIdle = () => {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => controller.abort(new Error("模型流式响应超时")), STREAM_IDLE_TIMEOUT_MS);
@@ -176,7 +242,7 @@ export async function* streamCompatibleModel(request: CompatibleRequest): AsyncG
         } catch {
           continue;
         }
-        const text = extractDeltaText(parsed.choices?.[0]?.delta);
+        const text = filterVisibleText(extractDeltaText(parsed.choices?.[0]?.delta));
         if (text) yield text;
       }
       if (done) break;

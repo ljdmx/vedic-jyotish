@@ -11,7 +11,7 @@ describe("报告抽屉流式状态 UI", () => {
   });
 
   it("在停止或中断后渲染部分报告保留提示，而非完整报告提示", () => {
-    const html = renderToStaticMarkup(<p><ReportReadingNote interrupted /></p>);
+    const html = renderToStaticMarkup(<p><ReportReadingNote interrupted mode="stream" /></p>);
     expect(html).toContain("已停止或中断");
     expect(html).toContain("可重新生成");
   });

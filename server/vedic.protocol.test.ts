@@ -18,6 +18,7 @@ describe("AI 报告质量协议", () => {
     expect(REPORT_QUALITY_PROTOCOL).toContain("能量很强");
     expect(REPORT_QUALITY_PROTOCOL).toContain("你天生注定");
     expect(REPORT_QUALITY_PROTOCOL).toContain("不得伪造具体日期");
+    expect(REPORT_QUALITY_PROTOCOL).toContain("不得输出思考过程");
   });
 
   it("让普通与流式生成都引入同一质量协议", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractCompatibleText, extractSseEvents, resolveModelSelection } from "./model-provider";
+import { createUserFacingTextFilter, extractCompatibleText, extractSseEvents, resolveModelSelection, sanitizeUserFacingText } from "./model-provider";
 
 describe("临时模型配置", () => {
   it("未选择模型时使用部署级 Agnes 默认模型", () => {
@@ -30,6 +30,18 @@ describe("临时模型配置", () => {
     expect(extractCompatibleText({ choices: [{ message: { content: "  单段正文  " } }] })).toBe("单段正文");
     expect(extractCompatibleText({ choices: [{ message: { content: [{ type: "text", text: "第一段" }, { type: "text", text: "第二段" }] } }] })).toBe("第一段\n第二段");
     expect(extractCompatibleText({ choices: [{ message: { content: [] } }] })).toBe("");
+  });
+
+  it("剔除一次性响应中明确标记的思考草稿，仅保留报告正文", () => {
+    const content = "<thinking>先列出内部推演</thinking>\n## 结论\n建议先核对材料。\n```analysis\n不应展示的过程\n```\n依据：H10。";
+    expect(sanitizeUserFacingText(content)).toBe("## 结论\n建议先核对材料。\n\n依据：H10。");
+    expect(extractCompatibleText({ choices: [{ message: { content } }] })).not.toContain("内部推演");
+  });
+
+  it("跨流式分块隐藏拆开的思考标签，不让过程文本闪现", () => {
+    const filter = createUserFacingTextFilter();
+    expect(filter("先给结论。<thin")).toBe("先给结论。");
+    expect(filter("king>隐藏过程</thinking>\n依据：H10。")).toBe("\n依据：H10。");
   });
 
   it("按 SSE 事件块切分 data 负载，并保留不完整的尾部缓冲", () => {
