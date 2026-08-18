@@ -6,6 +6,7 @@ import { renderLightMarkdown, splitStableTail } from "@/lib/light-markdown";
 import { appendStableMarkdown, clearStreamRenderTargets } from "@/lib/stream-render";
 import { shouldScheduleLocationSearch } from "@/lib/location-search";
 import { createFrameThrottler } from "@/lib/frame-throttler";
+import { shouldRedirectWheelToHorizontalScroll } from "@/lib/horizontal-wheel";
 import { getReportRenderMode, retainContentOnRestart } from "@/lib/report-stream-lifecycle";
 import { AI_OUTPUT_MODE_COPY, DEFAULT_AI_OUTPUT_MODE, aiOutputModeLabel, usesStreamingReportPath, type AiOutputMode } from "@/lib/output-mode";
 import { ReportReadingNote, ReportStreamInkwell, ReportStreamMeta } from "@/components/ReportStreamState";
@@ -81,7 +82,6 @@ function kpDegreeLabel(value: number) { const normalized = Math.min(Math.max(val
 function scrollWithKeyboard(event: KeyboardEvent<HTMLElement>) { const target = event.currentTarget; const page = Math.max(96, Math.floor(target.clientHeight * .82)); const offsets: Record<string, number> = { ArrowDown: 40, ArrowUp: -40, PageDown: page, PageUp: -page, Home: -target.scrollTop, End: target.scrollHeight }; const offset = offsets[event.key]; if (offset === undefined) return; event.preventDefault(); target.scrollBy({ top: offset, behavior: "smooth" }); }
 function scrollPageWithKeyboard(event: KeyboardEvent<HTMLElement>) { const page = Math.max(160, Math.floor(window.innerHeight * .82)); const offsets: Record<string, number> = { ArrowDown: 48, ArrowUp: -48, PageDown: page, PageUp: -page, Home: -window.scrollY, End: document.documentElement.scrollHeight }; const offset = offsets[event.key]; if (offset === undefined) return; event.preventDefault(); window.scrollBy({ top: offset, behavior: "smooth" }); }
 function scrollNavigationWithKeyboard(event: KeyboardEvent<HTMLElement>) { const target = event.currentTarget; const page = Math.max(96, Math.floor(target.clientWidth * .7)); const offsets: Record<string, number> = { ArrowRight: 56, ArrowLeft: -56, PageDown: page, PageUp: -page, Home: -target.scrollLeft, End: target.scrollWidth }; const offset = offsets[event.key]; if (offset === undefined) return; event.preventDefault(); target.scrollBy({ left: offset, behavior: "smooth" }); }
-function scrollNavigationWithWheel(event: ReactWheelEvent<HTMLElement>) { const target = event.currentTarget; if (target.scrollWidth <= target.clientWidth || (!event.shiftKey && Math.abs(event.deltaY) < Math.abs(event.deltaX))) return; event.preventDefault(); target.scrollBy({ left: event.deltaY, behavior: "auto" }); }
 function blurNumberInputOnWheel(event: ReactWheelEvent<HTMLInputElement>) { event.currentTarget.blur(); }
 
 export default function Home() {
@@ -113,6 +113,7 @@ export default function Home() {
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<"birth" | "partner" | "prashna" | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
+  const topNavRef = useRef<HTMLElement>(null);
   const kpTableQuery = trpc.kp.table.useQuery();
   const modelStatusQuery = trpc.model.status.useQuery();
   const [synastryPreview, setSynastryPreview] = useState<{ overlays: SynastryOverlay[]; drishti: SynastryDrishti[]; moonScreening: { aNakshatra: string; bNakshatra: string; taraDistance: number; note: string }; methodology: string } | null>(null);
@@ -162,6 +163,23 @@ export default function Home() {
   const [streamWaitingLong, setStreamWaitingLong] = useState(false);
   const streamWaitingLongRef = useRef(false);
   const scrollFollowSchedulerRef = useRef<ReturnType<typeof createFrameThrottler> | null>(null);
+  useEffect(() => {
+    const navigation = topNavRef.current;
+    if (!navigation) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!shouldRedirectWheelToHorizontalScroll({
+        scrollWidth: navigation.scrollWidth,
+        clientWidth: navigation.clientWidth,
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        shiftKey: event.shiftKey,
+      })) return;
+      event.preventDefault();
+      navigation.scrollBy({ left: event.deltaY, behavior: "auto" });
+    };
+    navigation.addEventListener("wheel", onWheel, { passive: false });
+    return () => navigation.removeEventListener("wheel", onWheel);
+  }, []);
   /** 流式渲染节流：约 120ms 一次批量写入，降低长报告的布局压力且保持逐段可感知。 */
   const FLUSH_INTERVAL_MS = 120;
   const flushPendingReport = useCallback(() => {
@@ -563,7 +581,7 @@ export default function Home() {
       <div className="topbar-ident">
         <button className="brand" onClick={() => { window.history.replaceState({}, "", "/"); setStarted(false); }} aria-label="返回观星录官网首页"><span className="brand-seal">观</span><span className="brand-copy"><strong>观星录</strong><small>VEDIC · JYOTISH</small></span></button>
       </div>
-      <nav className="top-nav" aria-label="功能导航；可用方向键、Page Up、Page Down、Home 和 End 横向滚动" tabIndex={0} onKeyDown={scrollNavigationWithKeyboard} onWheel={scrollNavigationWithWheel}>{NAV_GROUPS.map(group => <div className="top-nav-group" key={group.label}><span className="top-nav-group__label">{group.label}</span>{group.ids.map(id => { const item = MODULES.find(candidate => candidate.id === id)!; return <button data-module-id={item.id} key={item.id} className={active === item.id ? "active" : ""} onClick={() => selectModule(item.id)}><span className="top-nav__code">{item.code}</span><item.icon /><span>{item.label}</span></button>; })}</div>)}</nav>
+      <nav ref={topNavRef} className="top-nav" aria-label="功能导航；可用方向键、Page Up、Page Down、Home 和 End 横向滚动" tabIndex={0} onKeyDown={scrollNavigationWithKeyboard}>{NAV_GROUPS.map(group => <div className="top-nav-group" key={group.label}><span className="top-nav-group__label">{group.label}</span>{group.ids.map(id => { const item = MODULES.find(candidate => candidate.id === id)!; return <button data-module-id={item.id} key={item.id} className={active === item.id ? "active" : ""} onClick={() => selectModule(item.id)}><span className="top-nav__code">{item.code}</span><item.icon /><span>{item.label}</span></button>; })}</div>)}</nav>
       <div className="topbar-actions"><div className="output-mode-anchor"><button type="button" className={`output-mode-trigger${outputModeOpen ? " is-open" : ""}`} aria-label={`AI 输出模式：${aiOutputModeLabel(outputMode)}`} aria-expanded={outputModeOpen} onClick={() => { setOutputModeOpen(current => !current); setModelConfigOpen(false); }}>{outputMode === "stream" ? <Radio size={16} /> : <ScrollText size={16} />}<span className="output-mode-trigger__dot" aria-hidden="true" /></button>{outputModeOpen && <div className="output-mode-card" role="menu" aria-label="选择 AI 输出模式"><p className="output-mode-card__label">AI 输出模式</p>{(["stream", "single"] as AiOutputMode[]).map(mode => <button key={mode} type="button" role="menuitemradio" className={outputMode === mode ? "is-selected" : ""} aria-checked={outputMode === mode} onClick={() => { setOutputMode(mode); setOutputModeOpen(false); toast.success(`已切换为${aiOutputModeLabel(mode)}`); }}>{mode === "stream" ? <Radio size={15} /> : <ScrollText size={15} />}<span><strong>{AI_OUTPUT_MODE_COPY[mode].label}</strong><small>{AI_OUTPUT_MODE_COPY[mode].hint}</small></span>{outputMode === mode && <Check size={14} aria-hidden="true" />}</button>)}</div>}</div><div className="model-config-anchor"><button type="button" className={`model-config-trigger${modelConfigOpen ? " is-open" : ""}`} aria-label="配置本次会话的 AI 模型" aria-expanded={modelConfigOpen} onClick={() => { setModelConfigOpen(current => !current); setOutputModeOpen(false); }}><Bot size={16} /></button>{modelConfigOpen && <ModelConfigCard value={modelConfig} onChange={setModelConfig} onClose={() => setModelConfigOpen(false)} />}</div><button onClick={clearSession} className="topbar-clear" aria-label="清除本次会话"><Trash2 size={14} /><span>清除</span></button></div>
     </header>
     <main className="app-main">
