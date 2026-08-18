@@ -17,6 +17,7 @@ describe("buildPrashnaLocation", () => {
     expect(buildPrashnaLocation({ place: "", latitude: "25", longitude: "102", timezoneOffset: "480" }).error).toContain("地点");
     expect(buildPrashnaLocation({ place: "昆明", latitude: "north", longitude: "102", timezoneOffset: "480" }).error).toContain("纬度");
     expect(buildPrashnaLocation({ place: "昆明", latitude: "25", longitude: "181", timezoneOffset: "480" }).error).toContain("经度");
+    expect(buildPrashnaLocation({ place: "昆明", latitude: "25", longitude: "102", timezoneOffset: "" }).error).toContain("时区");
     expect(buildPrashnaLocation({ place: "昆明", latitude: "25", longitude: "102", timezoneOffset: "900" }).error).toContain("时区");
   });
 });
