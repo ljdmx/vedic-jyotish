@@ -10,3 +10,8 @@ export const AI_OUTPUT_MODE_COPY: Record<AiOutputMode, { label: string; hint: st
 export function aiOutputModeLabel(mode: AiOutputMode) {
   return AI_OUTPUT_MODE_COPY[mode].label;
 }
+
+/** 仅流式模式可建立 SSE 与原始增量 DOM；一次性模式必须等待完整报告。 */
+export function usesStreamingReportPath(mode: AiOutputMode) {
+  return mode === "stream";
+}

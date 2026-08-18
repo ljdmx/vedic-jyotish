@@ -7,7 +7,7 @@ import { appendStableMarkdown, clearStreamRenderTargets } from "@/lib/stream-ren
 import { shouldScheduleLocationSearch } from "@/lib/location-search";
 import { createFrameThrottler } from "@/lib/frame-throttler";
 import { getReportRenderMode, retainContentOnRestart } from "@/lib/report-stream-lifecycle";
-import { AI_OUTPUT_MODE_COPY, DEFAULT_AI_OUTPUT_MODE, aiOutputModeLabel, type AiOutputMode } from "@/lib/output-mode";
+import { AI_OUTPUT_MODE_COPY, DEFAULT_AI_OUTPUT_MODE, aiOutputModeLabel, usesStreamingReportPath, type AiOutputMode } from "@/lib/output-mode";
 import { ReportReadingNote, ReportStreamInkwell, ReportStreamMeta } from "@/components/ReportStreamState";
 import type { VedicChart as VedicChartData } from "@shared/vedic-engine";
 import type { KpSubLordRow } from "@shared/kp";
@@ -333,6 +333,11 @@ export default function Home() {
       },
     });
   };
+  /** 所有模块统一从这里分派，避免独立栈绕过一次性输出模式。 */
+  const startReport = (payload: Record<string, unknown>) => {
+    if (usesStreamingReportPath(outputMode)) startReportStream(payload);
+    else startReportOnce(payload);
+  };
   const stopGeneration = () => {
     streamRunGuardRef.current.invalidate();
     streamAbortRef.current?.();
@@ -467,8 +472,7 @@ export default function Home() {
     if (needsChart && !selectedChart && active !== "synastry") { toast.error("请先在本次会话中完成出生信息排盘"); return; }
     const requestedModel = requestModelConfig(); if (!requestedModel) return;
     const payload = { stack, module: moduleId, chartInput: stack !== "prashna" && stack !== "kp" ? selectedChart?.chart.birth : undefined, question: question || undefined, events: events || undefined, extraContext: extraContext || undefined, modelConfig: requestedModel, ...additions };
-    if (outputMode === "stream") startReportStream(payload);
-    else startReportOnce(payload);
+    startReport(payload);
   };
   const calculateCurrentBirth = () => { if (!validBirth()) return toast.error("请填写日期、时间、地点、经纬度与时区"); calculateChart.mutate(birthPayload()); };
   const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
@@ -544,8 +548,8 @@ export default function Home() {
         {active === "career" && <SpecialPanel type="career" busy={busy} question={question} setQuestion={setQuestion} run={() => run("natal", "career")} />}
         {active === "love" && <SpecialPanel type="love" busy={busy} question={question} setQuestion={setQuestion} run={() => run("natal", "love")} />}
         {active === "rectification" && <RectificationPanel busy={busy} preview={rectificationPreview.data} events={events} setEvents={setEvents} run={() => run("rectification", "rectification")} />}
-        {active === "synastry" && <SynastryPanel busy={busy} preview={synastryPreview} partner={partner} setPartner={setPartner} question={question} setQuestion={setQuestion} hasChart={Boolean(selectedChart)} resolvePartnerPlace={resolvePartnerPlace} resolvingPartnerPlace={mapConfigQuery.isLoading} run={() => { const requestedModel = requestModelConfig(); if (!requestedModel || !selectedChart || !validBirth(partner)) return toast.error("请在本次会话中完成你的排盘，并完整填写对方出生资料"); startReportStream({ stack: "synastry", module: "synastry", chartInput: selectedChart.chart.birth, partnerInput: birthPayload(partner), question: question || undefined, modelConfig: requestedModel }); }} />}
-        {active === "prashna" && <PrashnaPanel busy={busy} location={prashnaLocation} setLocation={setPrashnaLocation} resolvePlace={resolvePrashnaPlace} question={question} setQuestion={setQuestion} run={() => { const questionCheck = validatePrashnaQuestion(question); if (!questionCheck.valid) return toast.error(questionCheck.error); const locationPayload = prashnaPayload(); if (!locationPayload) return; const requestedModel = requestModelConfig(); if (!requestedModel) return; startReportStream({ stack: "prashna", module: "prashna", question: questionCheck.question, modelConfig: requestedModel, prashnaLocation: locationPayload }); }} />}
+        {active === "synastry" && <SynastryPanel busy={busy} preview={synastryPreview} partner={partner} setPartner={setPartner} question={question} setQuestion={setQuestion} hasChart={Boolean(selectedChart)} resolvePartnerPlace={resolvePartnerPlace} resolvingPartnerPlace={mapConfigQuery.isLoading} run={() => { const requestedModel = requestModelConfig(); if (!requestedModel || !selectedChart || !validBirth(partner)) return toast.error("请在本次会话中完成你的排盘，并完整填写对方出生资料"); startReport({ stack: "synastry", module: "synastry", chartInput: selectedChart.chart.birth, partnerInput: birthPayload(partner), question: question || undefined, modelConfig: requestedModel }); }} />}
+        {active === "prashna" && <PrashnaPanel busy={busy} location={prashnaLocation} setLocation={setPrashnaLocation} resolvePlace={resolvePrashnaPlace} question={question} setQuestion={setQuestion} run={() => { const questionCheck = validatePrashnaQuestion(question); if (!questionCheck.valid) return toast.error(questionCheck.error); const locationPayload = prashnaPayload(); if (!locationPayload) return; const requestedModel = requestModelConfig(); if (!requestedModel) return; startReport({ stack: "prashna", module: "prashna", question: questionCheck.question, modelConfig: requestedModel, prashnaLocation: locationPayload }); }} />}
         {active === "tajika" && <TajikaPanel busy={busy} year={year} setYear={setYear} run={() => run("tajika", "tajika", { year: Number(year) })} />}
         {active === "kp" && <KpPanel busy={busy} question={question} setQuestion={setQuestion} extraContext={extraContext} setExtraContext={setExtraContext} table={kpTableQuery.data || []} kpNumber={kpNumber} setKpNumber={setKpNumber} run={() => run("kp", "kp", { kpNumber: Number(kpNumber) })} />}
         {reportRenderMode !== "none" && <article className="report-drawer"><div className="report-drawer__head"><div><div className="eyebrow">REPORT · THIS SESSION ONLY</div><h3>{reportTitle}</h3></div>{streaming && <button type="button" className="report-stop" onClick={stopGeneration} aria-label="停止生成当前报告"><Square size={11} /> 停止生成</button>}</div><div className="report-meta">{streaming ? <span className={streamWaiting ? "stream-waiting" : undefined} role="status" aria-live="polite"><ReportStreamMeta waitState={streamWaitingLong ? "long-waiting" : streamWaiting ? "waiting" : "writing"} /></span> : <><span className="report-seal" aria-hidden="true" /><span>{reportInterrupted ? "生成已停止 · " : "已生成 · "}{reportText ? reportText.length : 0} 字 · 仅保留在本次会话</span></>}</div>{streaming && <div className="report-inkwell"><Loader2 className="animate-spin" size={15} /> <ReportStreamInkwell waitState={streamWaitingLong ? "long-waiting" : streamWaiting ? "waiting" : "writing"} /></div>}{!streaming && reportText && <p className="report-reading-note"><ReportReadingNote interrupted={reportInterrupted} /></p>}{reportRenderMode === "raw" && <div key="raw-report" className="report-content report-content--raw" ref={reportScrollRef} role="region" aria-label={streaming ? "本次报告内容实时生成中" : "本次报告内容；已保留生成时的连续视图"}><div className="report-raw" ref={rawReportRef}><div className="rm-stable" /><div className="rm-tail" /></div></div>}{reportRenderMode === "markdown" && reportText && <div className="report-content" ref={reportScrollRef} tabIndex={0} role="region" aria-label={reportInterrupted ? "本次中断报告内容；可重新生成以获取完整报告" : "本次完整报告内容；报告已随页面连续展开，可使用 Page Down / End 键继续阅读"} onKeyDown={scrollPageWithKeyboard}><Suspense fallback={<div className="report-loading"><Loader2 className="animate-spin" size={16} /> 正在展开卷轴…</div>}><Streamdown isAnimating={false} controls={false}>{reportText}</Streamdown></Suspense></div>}</article>}
