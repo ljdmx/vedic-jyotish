@@ -33,6 +33,37 @@ function renderListItem(text: string): string {
   return `<li>${inline(text)}</li>`;
 }
 
+function renderOrderedListItem(text: string): string {
+  return `<li>${inline(text)}</li>`;
+}
+
+function isPlainSectionTitle(text: string) {
+  return /^(?:（(?:启用|未启用|未计算)）\s*)?(?:现实里怎么验证|接下来怎么做|仍需核对|边界说明|盘面依据|行动建议)\s*[：:]?$/.test(text);
+}
+
+function isSectionTitle(text: string) {
+  return /^#{1,3}\s+/.test(text) || isPlainSectionTitle(text);
+}
+
+/**
+ * 模型有时把“计算核对”引用块、后续章节标题和列表以单换行连续输出。
+ * 在流式尾部收束前将这些明确的语义边界补为独立块，避免标题粘在引用后或列表退化为段落。
+ */
+function normalizeReportBlockBoundaries(input: string) {
+  const lines = input.split("\n");
+  const normalized: string[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    const next = lines[index + 1]?.trim() ?? "";
+    const sectionTitle = isSectionTitle(trimmed);
+    if (sectionTitle && normalized.length > 0 && normalized[normalized.length - 1].trim() !== "") normalized.push("");
+    normalized.push(line);
+    if (sectionTitle && next && /^(?:\d+[.)]|[-*+])\s+/.test(next)) normalized.push("");
+  }
+  return normalized.join("\n");
+}
+
 /**
  * 把全文切分为「稳定块」与「尾部活动块」，采用行级边界：
  * - tail：最后一行（可能在增长）或整个未闭合的连续列表块
@@ -64,7 +95,7 @@ export function splitStableTail(fullText: string): { stable: string; tail: strin
 
 export function renderLightMarkdown(input: string): string {
   if (!input) return "";
-  const escaped = input
+  const escaped = normalizeReportBlockBoundaries(input)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -75,12 +106,17 @@ export function renderLightMarkdown(input: string): string {
   return blocks
     .map(block => {
       const lines = block.split("\n").map(line => line.trimEnd());
-      const nonEmpty = lines.filter(line => line.trim().length > 0);
+      const nonEmpty = lines.filter(line => line.trim().length > 0).map(line => line.trimStart());
       if (nonEmpty.length === 0) return "";
 
-      // 列表块：整块以 "- " 开头
-      if (nonEmpty.every(line => /^-\s+/.test(line))) {
-        return `<ul>${nonEmpty.map(line => renderListItem(line.replace(/^-\s+/, ""))).join("")}</ul>`;
+      // 无序列表块：支持模型常见的 - / * / + 前缀
+      if (nonEmpty.every(line => /^[-*+]\s+/.test(line))) {
+        return `<ul>${nonEmpty.map(line => renderListItem(line.replace(/^[-*+]\s+/, ""))).join("")}</ul>`;
+      }
+
+      // 有序步骤：终态常用于“接下来怎么做”，应保持真实序号而非退化为普通段落。
+      if (nonEmpty.every(line => /^\d+[.)]\s+/.test(line))) {
+        return `<ol>${nonEmpty.map(line => renderOrderedListItem(line.replace(/^\d+[.)]\s+/, ""))).join("")}</ol>`;
       }
 
       return nonEmpty
@@ -89,7 +125,10 @@ export function renderLightMarkdown(input: string): string {
           if (/^###\s+/.test(text)) return `<h4>${inline(text.replace(/^###\s+/, ""))}</h4>`;
           if (/^##\s+/.test(text)) return `<h3>${inline(text.replace(/^##\s+/, ""))}</h3>`;
           if (/^#\s+/.test(text)) return `<h2>${inline(text.replace(/^#\s+/, ""))}</h2>`;
-          if (/^>\s+/.test(text)) return `<blockquote>${inline(text.replace(/^>\s+/, ""))}</blockquote>`;
+          if (/^(?:>|&gt;)\s+/.test(text)) return `<blockquote>${inline(text.replace(/^(?:>|&gt;)\s+/, ""))}</blockquote>`;
+          if (/^(?:---|___|\*\*\*)$/.test(text)) return "<hr />";
+          if (/^（[^）]{2,28}）$/.test(text)) return `<p class="lm-section-label">${inline(text)}</p>`;
+          if (isPlainSectionTitle(text)) return `<h4 class="lm-section-title">${inline(text)}</h4>`;
           return `<p>${inline(text)}</p>`;
         })
         .join("");

@@ -147,6 +147,7 @@ export default function Home() {
   const reportFlushSchedulerRef = useRef<ReturnType<typeof createFrameThrottler> | null>(null);
   const reportScrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
+  const autoScrollUntilRef = useRef(0);
   /** 流式期间直接写纯文本 DOM，绕过 React 重渲染与 markdown 解析，保证最流畅。 */
   const rawReportRef = useRef<HTMLDivElement>(null);
   const streamingRef = useRef(false);
@@ -161,8 +162,8 @@ export default function Home() {
   const [streamWaitingLong, setStreamWaitingLong] = useState(false);
   const streamWaitingLongRef = useRef(false);
   const scrollFollowSchedulerRef = useRef<ReturnType<typeof createFrameThrottler> | null>(null);
-  /** 流式渲染节流：约 100ms 一次批量把累积文本写入 DOM。 */
-  const FLUSH_INTERVAL_MS = 100;
+  /** 流式渲染节流：约 120ms 一次批量写入，降低长报告的布局压力且保持逐段可感知。 */
+  const FLUSH_INTERVAL_MS = 120;
   const flushPendingReport = useCallback(() => {
     if (streamingRef.current && rawReportRef.current) {
       // 流式：稳定块仅追加新增的闭合内容；尾部活动块按形态选择最快写入。
@@ -207,8 +208,16 @@ export default function Home() {
   useEffect(() => {
     const reportScheduler = createFrameThrottler(flushPendingReport, FLUSH_INTERVAL_MS);
     const scrollScheduler = createFrameThrottler(() => {
-      if (!userScrolledUpRef.current) rawReportRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
-    }, 300);
+      if (userScrolledUpRef.current) return;
+      const report = reportScrollRef.current;
+      if (!report) return;
+      // 仅将视口补到新增内容附近，避免 scrollIntoView 对整页做昂贵的强制定位。
+      const distanceBelowViewport = report.getBoundingClientRect().bottom - window.innerHeight;
+      if (distanceBelowViewport > -48) {
+        autoScrollUntilRef.current = performance.now() + 650;
+        window.scrollBy({ top: Math.min(distanceBelowViewport + 48, 360), behavior: "auto" });
+      }
+    }, 360);
     reportFlushSchedulerRef.current = reportScheduler;
     scrollFollowSchedulerRef.current = scrollScheduler;
     return () => {
@@ -389,6 +398,7 @@ export default function Home() {
   // 用户上滚查看已生成内容时暂停自动跟随；回到报告底部附近后恢复
   useEffect(() => {
     const onWindowScroll = () => {
+      if (performance.now() < autoScrollUntilRef.current) return;
       const el = reportScrollRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
@@ -418,9 +428,10 @@ export default function Home() {
     }, 300);
     return () => window.clearInterval(timer);
   }, []);
-  // 完成定型后：把 Streamdown 渲染的列表项内 ✓/✗ emoji 前缀替换为 CSS 几何标记
+  // 一次性 Markdown 视图定型后才需要补充标记；原始流式 DOM 已在轻量渲染时生成几何标记，
+  // 结束后跳过 30 次轮询扫描，避免长报告在收尾阶段仍占用主线程。
   useEffect(() => {
-    if (streaming || !reportText) return;
+    if (streaming || keepRawReport || !reportText) return;
     const root = reportScrollRef.current;
     if (!root) return;
     const enhance = (li: HTMLElement) => {
@@ -453,7 +464,7 @@ export default function Home() {
     }, 120);
     tick();
     return () => window.clearInterval(handle);
-  }, [reportText, streaming]);
+  }, [reportText, streaming, keepRawReport]);
   const ingest = trpc.document.ingest.useMutation({
     onSuccess: data => { const report = data.report as MemoryReport; setReports(current => [report, ...current].slice(0, 12)); setReportText(report.resultMarkdown); setReportTitle(report.title); toast.success("资料已完成临时识读；未保存原始文件或结果"); },
     onError: error => toast.error(error.message),

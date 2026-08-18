@@ -55,6 +55,17 @@ describe("流式稳定区增量渲染", () => {
     expect(view.html).toContain("第 120 段稳定内容");
   });
 
+  it("报告结束后的最终稳定块仍按追加方式写入，不需要重建前文 DOM", () => {
+    const view = createTarget();
+    const beforeTerminal = "## 结论\n先完成资料核对。\n";
+    const terminal = `${beforeTerminal}\n### 接下来怎么做\n1. 提交材料\n2. 等待回复\n`;
+    const stable = appendStableMarkdown(view.target, "", beforeTerminal);
+    appendStableMarkdown(view.target, stable, terminal);
+
+    expect(view.replacements).toBe(0);
+    expect(view.html).toContain("接下来怎么做");
+  });
+
   it("P1–P12 续写时保留首稿稳定区，只追加此前缺失的小节", () => {
     const view = createTarget();
     const firstPass = "### P1：第一宫\n首稿内容\n\n### P8：第八宫\n首稿内容\n";

@@ -321,6 +321,8 @@ button { cursor: pointer; }
 .report-raw ul{margin:.5em 0;padding-left:1.4rem;list-style:none}
 .report-raw ul li{position:relative;padding-left:1.05rem;margin:.28rem 0}
 .report-raw ul li::before{content:"";position:absolute;left:.05rem;top:.82em;width:.34rem;height:.34rem;background:var(--astral-bronze);border-radius:50%;opacity:.85}
+.report-raw ol{margin:.7em 0 1em;padding-left:1.7rem}
+.report-raw ol li{padding-left:.3rem;margin:.34rem 0}
 .report-raw ul li:has(> .lm-mark){padding-left:0}
 .report-raw ul li > .lm-mark{margin-right:.65em}
 /* 自定义启用 / 排除标识：CSS 几何对勾 / 叉，不依赖系统 emoji 字体 */
@@ -336,12 +338,21 @@ button { cursor: pointer; }
 .report-raw code{font:.88em/1 "DM Mono","SFMono-Regular",monospace;padding:.06em .32em;background:rgba(36,40,38,.06);border-radius:3px;color:#3b3f3d}
 .report-raw blockquote{margin:.7em 0;border-left:2px solid var(--astral-vermilion);padding:.45rem .7rem .45rem 1rem;color:#4f5651;background:linear-gradient(90deg,rgba(164,95,73,.055),rgba(164,95,73,0))}
 .report-raw blockquote p{margin:.3em 0}
+.report-raw .lm-section-label{margin:1.45em 0 .5em;padding-top:1em;border-top:1px solid rgba(41,43,42,.14);color:#65796b;font:.62rem/1.4 "DM Mono",monospace;letter-spacing:.06em}
+.report-raw .lm-section-title{margin:1.8em 0 .55em;padding-top:.85em;border-top:1px solid rgba(41,43,42,.15);color:#3b3f3d;font:600 1rem/1.45 "Noto Serif SC","Songti SC",serif;letter-spacing:.02em}
 /* 打字机光标：尾部活动块有内容后，末尾跟随闪烁竖线 */
 .report-raw .rm-stable,.report-raw .rm-tail{min-width:0}
 .rm-tail:not(:empty)::after{content:"";display:inline-block;width:.45rem;height:1em;margin-left:.14em;vertical-align:-.12em;background:var(--astral-vermilion);animation:report-cursor-blink 1.05s steps(2,start) infinite}
 /* 等待呼吸：约 500ms 无新增量时光标放慢，暗示模型仍在回应 */
 .report-raw.is-waiting .rm-tail:not(:empty)::after{animation:report-cursor-breath 2.2s ease-in-out infinite}
 @keyframes report-cursor-breath{0%,100%{opacity:1}50%{opacity:.2}}
+/* 流式结束后仍沿用连续 DOM，但收束为稳定卷轴：去除活动光标、增加段落节奏，不触发整篇 Markdown 重建。 */
+.report-drawer:has(.report-seal) .report-content--raw{margin-top:.2rem;padding:1.1rem 1.05rem 1.85rem;border-top:1px solid rgba(41,43,42,.18);border-bottom:1px solid rgba(41,43,42,.12);background:linear-gradient(105deg,rgba(247,244,235,.42),rgba(244,239,229,.12));}
+.report-drawer:has(.report-seal) .report-raw h2{margin:2.2em 0 .68em;padding-bottom:.42rem;border-bottom:1px solid rgba(41,43,42,.18);font-size:1.3rem}
+.report-drawer:has(.report-seal) .report-raw h2:first-child{margin-top:.1em}
+.report-drawer:has(.report-seal) .report-raw h3{margin:1.7em 0 .5em}
+.report-drawer:has(.report-seal) .report-raw p{margin:.66em 0}
+.report-drawer:has(.report-seal) .rm-tail:not(:empty)::after{display:none}
 /* 完成切换：纯文本 → Streamdown 定型时 240ms 淡入 */
 .report-content:not(.report-content--raw){animation:report-settle-in .24s ease}
 @keyframes report-settle-in{from{opacity:.35}to{opacity:1}}
