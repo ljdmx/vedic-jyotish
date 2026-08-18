@@ -4,6 +4,7 @@ export const MODEL_PROVIDERS = {
   kimi: { label: "Kimi", baseUrl: "https://api.moonshot.cn/v1", defaultModel: "kimi-k3", requiresUserKey: true },
   qwen: { label: "千问 Qwen", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen3.8-max", requiresUserKey: true },
   glm: { label: "智谱 GLM", baseUrl: "https://open.bigmodel.cn/api/paas/v4", defaultModel: "glm-5.2", requiresUserKey: true },
+  bai: { label: "Bai（b.ai）", baseUrl: "https://api.b.ai/v1", defaultModel: "gpt-5.2", requiresUserKey: true },
   aiapi: { label: "AIAPI.world（兼容中转）", baseUrl: "https://aiapi.world/v1", defaultModel: "", requiresUserKey: true },
 } as const;
 

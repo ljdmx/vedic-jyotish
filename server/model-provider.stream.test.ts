@@ -17,6 +17,7 @@ const providers: Array<{ label: string; selection: TemporaryModelConfig }> = [
   { label: "Kimi", selection: { provider: "kimi", model: "kimi-k3", apiKey: "temporary-key" } },
   { label: "Qwen", selection: { provider: "qwen", model: "qwen3.8-max", apiKey: "temporary-key" } },
   { label: "GLM", selection: { provider: "glm", model: "glm-5.2", apiKey: "temporary-key" } },
+  { label: "Bai", selection: { provider: "bai", model: "gpt-5.2", apiKey: "temporary-key" } },
   { label: "AIAPI.world", selection: { provider: "aiapi", model: "compatible-model", apiKey: "temporary-key" } },
 ];
 
@@ -53,6 +54,23 @@ describe("兼容模型流式完成状态", () => {
       'data: {"choices":[{"delta":{"content":"末尾"}}]}\n\n',
       "data: [DONE]",
     ], selection)).resolves.toBe("末尾");
+  });
+
+  it("Bai 使用固定的 OpenAI 兼容端点、临时 Bearer 密钥与 stream 请求体", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse(['data: {"choices":[{"delta":{"content":"Bai 已连接"}}]}\n\n', "data: [DONE]\n\n"]));
+    vi.stubGlobal("fetch", fetchMock);
+    let output = "";
+    for await (const text of streamCompatibleModel({
+      selection: { provider: "bai", model: "gpt-5.2", apiKey: "temporary-bai-key" },
+      messages: [{ role: "user", content: "test" }],
+    })) output += text;
+    expect(output).toBe("Bai 已连接");
+    expect(fetchMock).toHaveBeenCalledWith("https://api.b.ai/v1/chat/completions", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ Authorization: "Bearer temporary-bai-key", "Content-Type": "application/json" }),
+      body: expect.stringContaining('"model":"gpt-5.2"'),
+    }));
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({ stream: true, model: "gpt-5.2" });
   });
 
   it("将下游取消信号传播到上游模型请求", async () => {

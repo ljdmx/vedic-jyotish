@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { createUserFacingTextFilter, extractCompatibleText, extractSseEvents, resolveModelSelection, sanitizeUserFacingText } from "./model-provider";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createUserFacingTextFilter, extractCompatibleText, extractSseEvents, invokeCompatibleModel, resolveModelSelection, sanitizeUserFacingText } from "./model-provider";
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("临时模型配置", () => {
   it("未选择模型时使用部署级 Agnes 默认模型", () => {
@@ -13,6 +15,8 @@ describe("临时模型配置", () => {
   it("允许受支持的临时兼容模型但不修改默认配置", () => {
     const resolved = resolveModelSelection({ provider: "kimi", model: "kimi-k3", apiKey: "temporary-key" });
     expect(resolved).toMatchObject({ provider: "kimi", baseUrl: "https://api.moonshot.cn/v1", model: "kimi-k3", apiKey: "temporary-key" });
+    const bai = resolveModelSelection({ provider: "bai", model: "gpt-5.2", apiKey: "temporary-key" });
+    expect(bai).toMatchObject({ provider: "bai", baseUrl: "https://api.b.ai/v1", model: "gpt-5.2", apiKey: "temporary-key" });
   });
 
   it("拒绝非白名单供应商，并忽略尝试注入的 Base URL", () => {
@@ -24,6 +28,21 @@ describe("临时模型配置", () => {
   it("拒绝缺少临时密钥或模型名称的自带模型请求", () => {
     expect(() => resolveModelSelection({ provider: "deepseek" })).toThrow("API Key");
     expect(() => resolveModelSelection({ provider: "aiapi", apiKey: "temporary-key" })).toThrow("模型名称");
+  });
+
+  it("Bai 的普通报告路径使用固定端点、临时 Bearer 密钥和非流式请求", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "Bai 普通响应" } }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(invokeCompatibleModel({
+      selection: { provider: "bai", model: "gpt-5.2", apiKey: "temporary-bai-key" },
+      messages: [{ role: "user", content: "test" }],
+    })).resolves.toMatchObject({ choices: [{ message: { content: "Bai 普通响应" } }] });
+    expect(fetchMock).toHaveBeenCalledWith("https://api.b.ai/v1/chat/completions", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ Authorization: "Bearer temporary-bai-key", "Content-Type": "application/json" }),
+    }));
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({ stream: false, model: "gpt-5.2" });
   });
 
   it("提取字符串与多段消息正文，兼容默认 Agnes 的响应形态", () => {

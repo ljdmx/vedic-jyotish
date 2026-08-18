@@ -7,6 +7,7 @@ import { appendStableMarkdown, clearStreamRenderTargets } from "@/lib/stream-ren
 import { shouldScheduleLocationSearch } from "@/lib/location-search";
 import { createFrameThrottler } from "@/lib/frame-throttler";
 import { shouldRedirectWheelToHorizontalScroll } from "@/lib/horizontal-wheel";
+import { reportsForModule, shouldShowModuleReport } from "@/lib/report-module-visibility";
 import { getReportRenderMode, retainContentOnRestart } from "@/lib/report-stream-lifecycle";
 import { AI_OUTPUT_MODE_COPY, DEFAULT_AI_OUTPUT_MODE, aiOutputModeLabel, usesStreamingReportPath, type AiOutputMode } from "@/lib/output-mode";
 import { ReportReadingNote, ReportStreamInkwell, ReportStreamMeta } from "@/components/ReportStreamState";
@@ -24,7 +25,7 @@ import { toast } from "sonner";
 
 type ModuleKey = "natal" | "reader" | "p1p12" | "rectification" | "career" | "love" | "synastry" | "prashna" | "tajika" | "kp";
 type BirthDraft = { name: string; date: string; time: string; place: string; latitude: string; longitude: string; timezoneOffset: string; timeAccuracy: string; timeSource: string; timeBasis: "wall_clock" | "standard_time" | "unknown" };
-type MemoryReport = { id: number; stack: string; title: string; resultMarkdown: string; createdAt: Date };
+type MemoryReport = { id: number; stack: string; module: string; title: string; resultMarkdown: string; createdAt: Date };
 
 const MODULES: Array<{ id: ModuleKey; label: string; code: string; description: string; icon: typeof Orbit }> = [
   { id: "natal", label: "出生信息排盘", code: "P00", description: "以出生时空生成恒星黄道 D1 基础工作盘", icon: Orbit },
@@ -89,6 +90,7 @@ export default function Home() {
   const compactPreview = new URLSearchParams(window.location.search).get("compact") === "1";
   const [started, setStarted] = useState(Boolean(requestedModule));
   const [active, setActive] = useState<ModuleKey>(() => requestedModule && MODULES.some(item => item.id === requestedModule) ? requestedModule : "natal");
+  const activeModuleRef = useRef<ModuleKey>(active);
   const [birth, setBirth] = useState<BirthDraft>({ ...initialBirth });
   const [selectedChart, setSelectedChart] = useState<{ label: string; chart: VedicChartData } | null>(null);
   const [reports, setReports] = useState<MemoryReport[]>([]);
@@ -96,6 +98,7 @@ export default function Home() {
   const [reportInterrupted, setReportInterrupted] = useState(false);
   const [reportFailure, setReportFailure] = useState<string | null>(null);
   const [reportTitle, setReportTitle] = useState("");
+  const [reportModule, setReportModule] = useState<string | null>(null);
   const [reportOutputMode, setReportOutputMode] = useState<AiOutputMode>(DEFAULT_AI_OUTPUT_MODE);
   const [question, setQuestion] = useState("");
   const [events, setEvents] = useState("");
@@ -117,6 +120,7 @@ export default function Home() {
   const kpTableQuery = trpc.kp.table.useQuery();
   const modelStatusQuery = trpc.model.status.useQuery();
   const [synastryPreview, setSynastryPreview] = useState<{ overlays: SynastryOverlay[]; drishti: SynastryDrishti[]; moonScreening: { aNakshatra: string; bNakshatra: string; taraDistance: number; note: string }; methodology: string } | null>(null);
+  useEffect(() => { activeModuleRef.current = active; }, [active]);
   const birthPayload = (value: BirthDraft = birth) => ({ ...value, latitude: Number(value.latitude), longitude: Number(value.longitude), timezoneOffset: Number(value.timezoneOffset) });
   const validBirth = (value: BirthDraft = birth) => Boolean(value.date && value.time && value.place && value.latitude !== "" && value.longitude !== "" && value.timezoneOffset !== "");
   const prashnaPayload = () => {
@@ -133,7 +137,7 @@ export default function Home() {
   const rectificationInput = useMemo(() => ({ birthInput: selectedChart?.chart.birth || emptyBirthInput }), [selectedChart]);
   const rectificationPreview = trpc.rectification.preview.useQuery(rectificationInput, { enabled: active === "rectification" && Boolean(selectedChart) });
   const calculateChart = trpc.chart.calculate.useMutation({
-    onSuccess: chart => { setSelectedChart({ label: birth.name.trim() || `${birth.place} · 本次工作盘`, chart: chart as VedicChartData }); setReportText(null); toast.success("已建立本次临时工作盘；刷新页面后将自动清除"); },
+    onSuccess: chart => { setSelectedChart({ label: birth.name.trim() || `${birth.place} · 本次工作盘`, chart: chart as VedicChartData }); setReportText(null); setKeepRawReport(false); setReportModule(null); toast.success("已建立本次临时工作盘；刷新页面后将自动清除"); },
     onError: error => toast.error(error.message),
   });
   const reportRun = trpc.report.run.useMutation();
@@ -246,6 +250,7 @@ export default function Home() {
     };
   }, [flushPendingReport]);
   const startReportStream = (payload: Record<string, unknown>) => {
+    const requestedModule = typeof payload.module === "string" ? payload.module : active;
     const run = streamRunGuardRef.current.begin();
     streamAbortRef.current?.();
     pendingReportRef.current = "";
@@ -271,6 +276,7 @@ export default function Home() {
     setReportInterrupted(false);
     setReportFailure(null);
     setReportOutputMode("stream");
+    setReportModule(requestedModule);
     setReportTitle(module.label);
     setStreaming(true);
     streamAbortRef.current = streamReport(payload, {
@@ -312,8 +318,8 @@ export default function Home() {
         setReportText(report.resultMarkdown);
         setKeepRawReport(true);
         setReportTitle(report.title);
-        if (data.previewChart && !selectedChart && active !== "prashna" && active !== "kp") setSelectedChart({ label: "本次工作盘", chart: data.previewChart as VedicChartData });
-        if (active === "synastry" && data.synastry) setSynastryPreview(data.synastry as typeof synastryPreview);
+        if (data.previewChart && !selectedChart && requestedModule === activeModuleRef.current && requestedModule !== "prashna" && requestedModule !== "kp") setSelectedChart({ label: "本次工作盘", chart: data.previewChart as VedicChartData });
+        if (requestedModule === "synastry" && requestedModule === activeModuleRef.current && data.synastry) setSynastryPreview(data.synastry as typeof synastryPreview);
         setStreaming(false);
         streamAbortRef.current = null;
         scrollFollowSchedulerRef.current?.schedule();
@@ -338,6 +344,7 @@ export default function Home() {
     });
   };
   const startReportOnce = (payload: Record<string, unknown>) => {
+    const requestedModule = typeof payload.module === "string" ? payload.module : active;
     const run = streamRunGuardRef.current.begin();
     streamAbortRef.current?.();
     streamAbortRef.current = null;
@@ -350,6 +357,7 @@ export default function Home() {
     setReportInterrupted(false);
     setReportFailure(null);
     setReportOutputMode("single");
+    setReportModule(requestedModule);
     setReportTitle(module.label);
     reportRun.mutate(payload as never, {
       onSuccess: data => {
@@ -360,8 +368,8 @@ export default function Home() {
         setReportText(report.resultMarkdown);
         setReportTitle(report.title);
         setReportFailure(null);
-        if (data.previewChart && !selectedChart && active !== "prashna" && active !== "kp") setSelectedChart({ label: "本次工作盘", chart: data.previewChart as VedicChartData });
-        if (active === "synastry" && data.synastry) setSynastryPreview(data.synastry as typeof synastryPreview);
+        if (data.previewChart && !selectedChart && requestedModule === activeModuleRef.current && requestedModule !== "prashna" && requestedModule !== "kp") setSelectedChart({ label: "本次工作盘", chart: data.previewChart as VedicChartData });
+        if (requestedModule === "synastry" && requestedModule === activeModuleRef.current && data.synastry) setSynastryPreview(data.synastry as typeof synastryPreview);
         toast.success("完整报告已生成；仅保留在当前页面会话中");
       },
       onError: error => {
@@ -408,6 +416,8 @@ export default function Home() {
     setStreaming(false);
     setReportInterrupted(false);
     setKeepRawReport(false);
+    setReportModule(report.module);
+    if (MODULES.some(item => item.id === report.module)) setActive(report.module as ModuleKey);
     setReportTitle(report.title);
     setReportFailure(null);
     setReportOutputMode("single");
@@ -484,7 +494,7 @@ export default function Home() {
     return () => window.clearInterval(handle);
   }, [reportText, streaming, keepRawReport]);
   const ingest = trpc.document.ingest.useMutation({
-    onSuccess: data => { const report = data.report as MemoryReport; setReports(current => [report, ...current].slice(0, 12)); setReportText(report.resultMarkdown); setReportTitle(report.title); toast.success("资料已完成临时识读；未保存原始文件或结果"); },
+    onSuccess: data => { const report = data.report as MemoryReport; setReports(current => [report, ...current].slice(0, 12)); setReportText(report.resultMarkdown); setReportModule(report.module); setReportTitle(report.title); toast.success("资料已完成临时识读；未保存原始文件或结果"); },
     onError: error => toast.error(error.message),
   });
   const mapConfigQuery = trpc.location.mapConfig.useQuery(undefined, { enabled: locationPickerOpen });
@@ -509,11 +519,11 @@ export default function Home() {
   const visibleReportMode = reportOutputMode;
   const reportSessionPending = streaming || reportRun.isPending;
   const reportSessionPreview = false;
-  const showReportDrawer = reportRenderMode !== "none" || reportSessionPending || Boolean(reportFailure);
+  const showReportDrawer = shouldShowModuleReport({ activeModule: active, reportModule, hasRenderableReport: reportRenderMode !== "none", isPending: reportSessionPending, hasFailure: Boolean(reportFailure) });
   const isolatedStack = active === "prashna" || active === "kp";
-  const visibleReports = isolatedStack ? reports.filter(report => report.stack === active) : reports.filter(report => report.stack !== "prashna" && report.stack !== "kp");
-  const selectModule = (id: ModuleKey) => { setActive(id); setReportText(null); setQuestion(""); setExtraContext(""); };
-  const clearSession = () => { streamRunGuardRef.current.invalidate(); streamAbortRef.current?.(); streamAbortRef.current = null; reportRun.reset(); pendingReportRef.current = ""; reportFlushSchedulerRef.current?.cancel(); setStreaming(false); setKeepRawReport(false); setReportFailure(null); setReportOutputMode(DEFAULT_AI_OUTPUT_MODE); setBirth({ ...initialBirth }); setPartner({ ...initialBirth }); setPrashnaLocation({ ...initialPrashnaLocation }); setSelectedChart(null); setReports([]); setReportText(null); setReportTitle(""); setQuestion(""); setEvents(""); setExtraContext(""); setFileName(""); setSynastryPreview(null); setModelConfig(defaultModelDraft()); setModelConfigOpen(false); setOutputMode(DEFAULT_AI_OUTPUT_MODE); setOutputModeOpen(false); setActive("natal"); toast.success("当前临时会话已清除"); };
+  const visibleReports = reportsForModule(reports, active);
+  const selectModule = (id: ModuleKey) => { setActive(id); setReportText(null); setKeepRawReport(false); setReportModule(null); setReportFailure(null); setQuestion(""); setExtraContext(""); };
+  const clearSession = () => { streamRunGuardRef.current.invalidate(); streamAbortRef.current?.(); streamAbortRef.current = null; reportRun.reset(); pendingReportRef.current = ""; reportFlushSchedulerRef.current?.cancel(); setStreaming(false); setKeepRawReport(false); setReportFailure(null); setReportModule(null); setReportOutputMode(DEFAULT_AI_OUTPUT_MODE); setBirth({ ...initialBirth }); setPartner({ ...initialBirth }); setPrashnaLocation({ ...initialPrashnaLocation }); setSelectedChart(null); setReports([]); setReportText(null); setReportTitle(""); setQuestion(""); setEvents(""); setExtraContext(""); setFileName(""); setSynastryPreview(null); setModelConfig(defaultModelDraft()); setModelConfigOpen(false); setOutputMode(DEFAULT_AI_OUTPUT_MODE); setOutputModeOpen(false); setActive("natal"); toast.success("当前临时会话已清除"); };
   const run = (stack: "natal" | "prashna" | "tajika" | "kp" | "synastry" | "rectification", moduleId: string, additions: Record<string, unknown> = {}) => {
     const needsChart = ["p1p12", "career", "love", "tajika", "synastry", "rectification"].includes(active);
     if (needsChart && !selectedChart && active !== "synastry") { toast.error("请先在本次会话中完成出生信息排盘"); return; }

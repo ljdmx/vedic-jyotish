@@ -13,4 +13,8 @@ describe("报告流视图生命周期", () => {
     expect(getReportRenderMode(false, false, true)).toBe("markdown");
     expect(getReportRenderMode(false, false, false)).toBe("none");
   });
+
+  it("模块切换重置原始流保留状态后不再显示旧报告", () => {
+    expect(getReportRenderMode(false, false, false)).toBe("none");
+  });
 });

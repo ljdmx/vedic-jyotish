@@ -11,7 +11,7 @@
 
 export type StreamReportResult = {
   type: "done";
-  report: { id: number; stack: string; title: string; resultMarkdown: string; createdAt: string; persistence: "memory-only" };
+  report: { id: number; stack: string; module: string; title: string; resultMarkdown: string; createdAt: string; persistence: "memory-only" };
   previewChart: unknown;
   rectification: unknown;
   synastry: unknown;

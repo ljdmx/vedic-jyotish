@@ -63,6 +63,7 @@ export async function handleReportStream(req: Request, res: Response) {
     const report = {
       id: temporaryId(),
       stack,
+      module: input.module,
       title: moduleTitle(input.module),
       resultMarkdown: "",
       createdAt: new Date().toISOString(),

@@ -7,11 +7,11 @@
 
 ## 页面预览
 
-> 以下图片托管在 GitHub 的 `docs/screenshots/`，因此可在 GitHub README、第三方 Markdown 阅读器和公开仓库页面中直接显示。
+> 以下截图使用公开站点的受管静态文件存储，保留原始分辨率，避免把大文件纳入应用部署包。
 
-![星墨吠陀首页预览](https://raw.githubusercontent.com/ljdmx/vedic-jyotish-deployment/main/docs/screenshots/vedic-jyotish-home.png)
+![星墨吠陀首页预览](https://vedicjyotish-zx73zald.manus.space/manus-storage/vedic-jyotish-home_2a17ea77.png)
 
-![Prashna 卜问与定位回填预览](https://raw.githubusercontent.com/ljdmx/vedic-jyotish-deployment/main/docs/screenshots/vedic-jyotish-prashna.png)
+![Prashna 卜问与定位回填预览](https://vedicjyotish-zx73zald.manus.space/manus-storage/vedic-jyotish-prashna_0b154bdd.png)
 
 ## 产品能力
 
@@ -23,7 +23,7 @@
 | --- | --- | --- |
 | 吠陀排盘 | `shared/` 内的恒星黄道、宫位、D1、KP、合盘与校时计算 | 本次请求内计算，不建档。 |
 | 地图与时区 | 前端地图交互 + 服务端同源代理 + 时区查询 | 地图密钥不下发至浏览器。 |
-| AI 解读 | 服务端兼容 Agnes、DeepSeek、Kimi、Qwen、GLM 与中转端点 | API Key 仅限本次会话或服务端环境使用。 |
+| AI 解读 | 服务端兼容 Agnes、DeepSeek、Kimi、Qwen、GLM、Bai 与中转端点 | API Key 仅限本次会话或服务端环境使用。 |
 | 流式展示 | SSE、事件序列、稳定 Markdown 块追加和尾部直写 | 报告仅保存在当前页面内存。 |
 
 ## 流式输出可靠性与体验
@@ -58,8 +58,8 @@
 client/                 React + Vite 前端、页面、地图与流式展示
 server/                 Express、tRPC、报告 SSE、地图与模型服务代理
 shared/                 排盘、时区、Prashna、KP、模型配置与校验逻辑
-client/public/images/   GitHub 中的纸墨背景图源码归档
-docs/screenshots/       README 页面预览图，仅用于 GitHub 文档展示
+client/public/images/   小型纸墨基础背景资源
+docs/                   产品与部署文档
 ```
 
 仓库已移除不参与当前应用运行的数据库模板、模板元数据、组件生成配置、历史补丁与迁移审阅记录。保留 `package.json`、`pnpm-lock.yaml`、Vite/TypeScript/Vitest 配置和测试，以确保本地与生产构建可复现。
@@ -125,11 +125,11 @@ NODE_ENV=production pnpm start
 
 项目已关联 GitHub 主分支。保存受管项目版本会同步代码；若 GitHub 在本地开发期间也有改动，应先合并冲突，再保存新版本，避免覆盖远程变更。
 
-背景图的源码归档位于 `client/public/images/`。README 截图专门保存在 `docs/screenshots/`，使用 GitHub Raw 地址引用，避免依赖受管存储权限或公开域名的跨站图片策略。更新 README 截图时，请同时更新 `docs/screenshots/` 中的文件并确认 GitHub 页面可见。
+纸墨基础纹理保留在 `client/public/images/`。高分辨率工作台背景和 README 截图使用受管静态文件存储的原始质量副本，避免将大文件写入应用部署包。更新这些原件后，应重新上传受管副本并更新引用。
 
 ## 静态资源策略
 
-GitHub 仓库保留 `client/public/images/` 中的背景图，便于自托管或源码归档。受管部署使用外部受管静态资源 URL，因此大尺寸图片不保留在部署工作区，避免构建包膨胀和部署超时。
+GitHub 仓库保留小型基础背景资源，便于自托管；受管部署使用外部受管静态资源 URL 提供原始质量的大尺寸背景和 README 截图，避免构建包膨胀和部署超时。
 
 ## 免责声明
 

@@ -494,7 +494,7 @@ button,input,textarea,select{font-family:"Noto Serif SC","Songti SC",Georgia,ser
   background-color:var(--astral-paper);
   background-image:
     linear-gradient(108deg,rgba(245,239,228,.82) 0%,rgba(237,229,215,.92) 51%,rgba(222,213,198,.84) 100%),
-    url("/manus-storage/astral-manuscript-hero-refined_95deb7aa.webp"),
+    url("/images/astral-manuscript-hero-refined.webp"),
     radial-gradient(rgba(36,40,38,.08) .5px,transparent .68px),
     radial-gradient(rgba(125,138,135,.07) .45px,transparent .65px);
   background-size:100% 100%,cover,6px 6px,13px 13px;
@@ -522,7 +522,7 @@ button,input,textarea,select{font-family:"Noto Serif SC","Songti SC",Georgia,ser
 .ink-landing{background:var(--astral-paper)!important}
 .ink-landing::before{opacity:1!important;background:
   linear-gradient(90deg,rgba(238,230,217,.98) 0%,rgba(238,230,217,.88) 39%,rgba(238,230,217,.18) 70%,rgba(238,230,217,.04) 100%),
-  url("/manus-storage/astral-manuscript-hero-refined_95deb7aa.webp") right center/cover no-repeat!important;mix-blend-mode:normal!important}
+  url("/images/astral-manuscript-hero-refined.webp") right center/cover no-repeat!important;mix-blend-mode:normal!important}
 .landing-nav{height:76px;padding:0 clamp(1.35rem,4.5vw,5.5rem);border-color:var(--astral-rule);background:rgba(239,231,218,.65);backdrop-filter:blur(16px)}
 .brand-seal{border-radius:48% 52% 47% 53%;background:var(--astral-ink);box-shadow:4px 4px 0 rgba(146,121,87,.13)}
 .brand-copy strong{letter-spacing:.14em;font-size:1rem}.brand-copy small{letter-spacing:.19em;color:var(--astral-slate)}
@@ -540,7 +540,7 @@ button,input,textarea,select{font-family:"Noto Serif SC","Songti SC",Georgia,ser
   background-color:#e8dfd0;
   background-image:
     linear-gradient(112deg,rgba(239,231,218,.76),rgba(232,223,208,.54)),
-    url("/manus-storage/astral-manuscript-hero-refined_95deb7aa.webp");
+    url("/images/astral-manuscript-hero-refined.webp");
   background-position:center,center;
   background-size:100% 100%,cover;
   background-repeat:no-repeat;
@@ -550,7 +550,7 @@ button,input,textarea,select{font-family:"Noto Serif SC","Songti SC",Georgia,ser
 .app-topbar{min-height:80px;padding:.66rem clamp(1rem,3.5vw,4.8rem);border-color:var(--astral-rule);background:rgba(239,232,220,.78);backdrop-filter:blur(20px)}.app-topbar::after{background:linear-gradient(90deg,transparent,rgba(146,121,87,.62) 20%,rgba(86,97,106,.46) 80%,transparent);opacity:.65}.topbar-context{border-color:rgba(36,40,38,.2);color:#77746c}.top-nav button{color:#62645d;letter-spacing:.015em}.top-nav button::after{background:var(--astral-vermilion);height:2px;bottom:0}.top-nav button.active{color:var(--astral-ink);background:linear-gradient(180deg,rgba(146,121,87,.09),transparent)}.top-nav button:hover{background:rgba(255,252,245,.45);color:var(--astral-ink)}.topbar-clear{color:#777168;border-color:rgba(36,40,38,.25)}
 .app-shell--top .app-main{width:min(100%,1620px);padding:clamp(2rem,4vw,4.8rem) clamp(1rem,5vw,6rem) clamp(4rem,8vw,8rem)}
 .app-shell--top .workspace-top{min-height:178px;padding:clamp(.6rem,1.5vw,1.2rem) 0 2rem;border-color:var(--astral-rule)}.app-shell--top .workspace-top::before{right:6%;top:-11%;width:clamp(200px,22vw,360px);border-color:rgba(86,97,106,.16);box-shadow:inset 0 0 0 34px rgba(125,138,135,.022),0 0 0 42px rgba(146,121,87,.015)}.app-shell--top .workspace-top::after{width:clamp(110px,15vw,238px);height:2px;background:var(--astral-vermilion)}.app-shell--top .workspace-top h1{font-size:clamp(2.65rem,5vw,5.55rem);letter-spacing:-.095em}.app-shell--top .workspace-top p{max-width:600px;color:#62645e;font-size:.88rem}
-.app-shell--top .workspace-grid{grid-template-columns:minmax(0,1fr) clamp(265px,20vw,340px);gap:clamp(1.1rem,3vw,3.2rem);margin-top:clamp(1.8rem,3vw,3.1rem)}.app-shell--top .workspace-card{min-height:600px;min-width:0;padding:clamp(1.2rem,2.7vw,2.85rem);background:linear-gradient(145deg,rgba(251,247,237,.63),rgba(244,237,225,.28));box-shadow:18px 22px 0 rgba(36,40,38,.022),0 25px 60px rgba(48,44,35,.045)}.app-shell--top .chart-side{overflow:hidden;border-color:rgba(36,40,38,.22);background:linear-gradient(160deg,rgba(243,236,223,.92),rgba(243,236,223,.68)),url("/manus-storage/astral-manuscript-panel-refined_5786cf07.webp") right bottom/cover no-repeat;box-shadow:10px 14px 0 rgba(36,40,38,.028),0 24px 52px rgba(48,44,35,.06)}
+.app-shell--top .workspace-grid{grid-template-columns:minmax(0,1fr) clamp(265px,20vw,340px);gap:clamp(1.1rem,3vw,3.2rem);margin-top:clamp(1.8rem,3vw,3.1rem)}.app-shell--top .workspace-card{min-height:600px;min-width:0;padding:clamp(1.2rem,2.7vw,2.85rem);background:linear-gradient(145deg,rgba(251,247,237,.63),rgba(244,237,225,.28));box-shadow:18px 22px 0 rgba(36,40,38,.022),0 25px 60px rgba(48,44,35,.045)}.app-shell--top .chart-side{overflow:hidden;border-color:rgba(36,40,38,.22);background:linear-gradient(160deg,rgba(243,236,223,.92),rgba(243,236,223,.68)),url("/images/astral-manuscript-panel-refined.webp") right bottom/cover no-repeat;box-shadow:10px 14px 0 rgba(36,40,38,.028),0 24px 52px rgba(48,44,35,.06)}
 .app-shell--top .module-intro{gap:1.05rem;padding-bottom:1.6rem;margin-bottom:1.8rem;border-color:var(--astral-rule)}.module-intro .glyph,.app-shell--top .module-intro .glyph{color:var(--astral-vermilion)}.app-shell--top .module-intro h2{font-size:clamp(1.55rem,2.5vw,2.2rem);letter-spacing:-.045em}.app-shell--top .module-intro p{color:#6a6961;max-width:680px}.app-shell--top .selected-chart{border-left:2px solid var(--astral-vermilion);background:linear-gradient(90deg,rgba(164,95,73,.10),rgba(255,255,255,.04));padding:.85rem 1rem}.app-shell--top .birth-audit{background:linear-gradient(90deg,rgba(86,97,106,.075),rgba(255,255,255,.12),rgba(146,121,87,.05));border-color:var(--astral-rule)}
 .app-shell--top .form-actions{border-color:var(--astral-rule)}.app-shell--top .field:focus{border-color:var(--astral-vermilion);box-shadow:0 1px 0 var(--astral-vermilion)}.app-shell--top .line-button:hover{border-color:var(--astral-vermilion);background:rgba(164,95,73,.06)}.app-shell--top .status{border-color:rgba(146,121,87,.42);color:#6d6258;background:rgba(250,246,237,.25)}.app-shell--top .chart-rail__head span,.app-shell--top .chart-rail__method header span,.app-shell--top .chart-rail__note>span{color:var(--astral-vermilion)}
 .vedic-chart{border-color:rgba(36,40,38,.62);background:rgba(247,242,231,.34)}.vedic-chart::before,.vedic-chart::after{border-color:rgba(36,40,38,.56)}.chart-diamond{border-color:rgba(36,40,38,.45)}.chart-lagna,.house-planets{color:var(--astral-vermilion)}
@@ -590,7 +590,7 @@ button,input,textarea,select{font-family:"Noto Serif SC","Songti SC",Georgia,ser
 .ink-landing::before{
   background:
     linear-gradient(90deg,rgba(238,230,217,.985) 0%,rgba(238,230,217,.93) 35%,rgba(238,230,217,.30) 62%,rgba(238,230,217,.06) 100%),
-    url("/manus-storage/astral-manuscript-hero-refined_95deb7aa.webp") right center/cover no-repeat!important;
+    url("/images/astral-manuscript-hero-refined.webp") right center/cover no-repeat!important;
 }
 .landing-hero{background:linear-gradient(90deg,rgba(250,246,236,.09),rgba(250,246,236,0) 46%)}
 .landing-hero::after{opacity:.82}
@@ -604,7 +604,7 @@ button,input,textarea,select{font-family:"Noto Serif SC","Songti SC",Georgia,ser
   background-color:#e8dfd0!important;
   background-image:
     linear-gradient(112deg,rgba(239,231,218,.76),rgba(232,223,208,.54)),
-    url("/manus-storage/astral-manuscript-hero-work-refined3_7e81ebcb.webp")!important;
+    url("/manus-storage/astral-manuscript-hero-work-refined3_bdd9fb4d.webp")!important;
   background-position:center,center!important;
   background-size:100% 100%,cover!important;
   background-repeat:no-repeat!important;
@@ -614,7 +614,7 @@ button,input,textarea,select{font-family:"Noto Serif SC","Songti SC",Georgia,ser
 .app-shell--top .chart-side{
   background:
     linear-gradient(158deg,rgba(246,240,228,.965) 0%,rgba(243,236,223,.78) 58%,rgba(235,228,215,.60) 100%),
-    url("/manus-storage/astral-manuscript-panel-refined_5786cf07.webp") right bottom/cover no-repeat;
+    url("/images/astral-manuscript-panel-refined.webp") right bottom/cover no-repeat;
 }
 @media (max-width:560px){
   .landing-nav,.app-topbar{box-shadow:0 7px 18px rgba(55,49,40,.05),0 1px 0 rgba(255,255,255,.42) inset}
@@ -628,7 +628,7 @@ button,input,textarea,select{font-family:"Noto Serif SC","Songti SC",Georgia,ser
 .app-shell--top .workspace-card{
   background:
     linear-gradient(138deg,rgba(252,248,239,.965) 0%,rgba(249,244,234,.92) 49%,rgba(244,237,225,.77) 100%),
-    url("/manus-storage/astral-manuscript-module_cadbe388.webp") right bottom/cover no-repeat;
+    url("/images/astral-manuscript-module.webp") right bottom/cover no-repeat;
   background-blend-mode:normal;
 }
 .app-shell--top .module-intro{background:linear-gradient(90deg,rgba(252,248,239,.26),rgba(252,248,239,0));padding-top:.12rem}
@@ -643,7 +643,7 @@ button,input,textarea,select{font-family:"Noto Serif SC","Songti SC",Georgia,ser
   .app-shell--top .workspace-card{
     background:
       linear-gradient(144deg,rgba(252,248,239,.97) 0%,rgba(249,244,234,.925) 62%,rgba(244,237,225,.79) 100%),
-      url("/manus-storage/astral-manuscript-module_cadbe388.webp") 76% bottom/auto 100% no-repeat;
+      url("/images/astral-manuscript-module.webp") 76% bottom/auto 100% no-repeat;
   }
 }
 

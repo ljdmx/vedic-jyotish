@@ -130,6 +130,7 @@ describe("vedic tRPC temporary-session routes", () => {
     const result = await appRouter.createCaller(context()).report.run({ stack: "natal", module: "p1p12", chartInput: birth, question: "我想先了解事业与关系的牵动。" });
     expect(mocks.generateAnalysis).toHaveBeenCalledWith(expect.objectContaining({ stack: "natal", module: "p1p12", chart: expect.objectContaining({ grahaDrishti: expect.any(Array) }) }));
     expect(result.report.id).toBeLessThan(0);
+    expect(result.report.module).toBe("p1p12");
     expect(result.report.persistence).toBe("memory-only");
     expect(result.report.resultMarkdown).toContain("临时解读");
   });

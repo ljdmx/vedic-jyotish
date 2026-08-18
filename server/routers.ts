@@ -10,7 +10,7 @@ import { publicProcedure, router } from "./_core/trpc";
 import { createChartForStack, extractChartDocument, generateAnalysis, moduleTitle, type AnalysisStack } from "./vedic";
 
 const modelConfigSchema = z.object({
-  provider: z.enum(["agnes", "deepseek", "kimi", "qwen", "glm", "aiapi"]),
+  provider: z.enum(["agnes", "deepseek", "kimi", "qwen", "glm", "bai", "aiapi"]),
   model: z.string().trim().min(1).max(128).optional(),
   apiKey: z.string().trim().min(1).max(512).optional(),
 }).optional();
@@ -262,7 +262,7 @@ export const appRouter = router({
       const { stack, analysis, previewChart, rectification, synastry } = await prepareReportAnalysis(input);
       const resultMarkdown = await generateAnalysis(analysis);
       return {
-        report: { id: temporaryId(), stack, title: moduleTitle(input.module), resultMarkdown, createdAt: new Date(), persistence: "memory-only" as const },
+        report: { id: temporaryId(), stack, module: input.module, title: moduleTitle(input.module), resultMarkdown, createdAt: new Date(), persistence: "memory-only" as const },
         previewChart,
         rectification,
         synastry,
@@ -301,7 +301,7 @@ export const appRouter = router({
       const extraction = await extractChartDocument({ dataUrl: input.dataUrl, mimeType: input.mimeType, hasLinkedCalculation: input.hasLinkedCalculation, modelConfig: input.modelConfig });
       return {
         document: { id: temporaryId(), fileName: input.fileName, mimeType: input.mimeType, persistence: "memory-only" as const },
-        report: { id: temporaryId(), stack: "document" as const, title: moduleTitle("reader"), resultMarkdown: extraction.markdown, createdAt: new Date(), persistence: "memory-only" as const },
+        report: { id: temporaryId(), stack: "document" as const, module: "reader", title: moduleTitle("reader"), resultMarkdown: extraction.markdown, createdAt: new Date(), persistence: "memory-only" as const },
       };
     }),
   }),
