@@ -5,6 +5,7 @@ import { getStreamWaitState } from "@/lib/stream-status";
 import { renderLightMarkdown, splitStableTail } from "@/lib/light-markdown";
 import { appendStableMarkdown, clearStreamRenderTargets } from "@/lib/stream-render";
 import { shouldScheduleLocationSearch } from "@/lib/location-search";
+import { createFrameThrottler } from "@/lib/frame-throttler";
 import { ReportReadingNote, ReportStreamInkwell, ReportStreamMeta } from "@/components/ReportStreamState";
 import type { VedicChart as VedicChartData } from "@shared/vedic-engine";
 import type { KpSubLordRow } from "@shared/kp";
@@ -133,7 +134,7 @@ export default function Home() {
   /** 新请求或取消请求都会失效旧回调，避免不同报告的增量交错。 */
   const streamRunGuardRef = useRef(createStreamRunGuard());
   const pendingReportRef = useRef("");
-  const reportFlushRef = useRef<number | null>(null);
+  const reportFlushSchedulerRef = useRef<ReturnType<typeof createFrameThrottler> | null>(null);
   const reportScrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
   /** 流式期间直接写纯文本 DOM，绕过 React 重渲染与 markdown 解析，保证最流畅。 */
@@ -147,12 +148,10 @@ export default function Home() {
   const streamWaitingRef = useRef(false);
   const [streamWaitingLong, setStreamWaitingLong] = useState(false);
   const streamWaitingLongRef = useRef(false);
-  /** 滚动跟随节流（减少强制布局频率）。 */
-  const lastScrollCheckRef = useRef(0);
+  const scrollFollowSchedulerRef = useRef<ReturnType<typeof createFrameThrottler> | null>(null);
   /** 流式渲染节流：约 100ms 一次批量把累积文本写入 DOM。 */
   const FLUSH_INTERVAL_MS = 100;
-  const flushPendingReport = () => {
-    reportFlushRef.current = null;
+  const flushPendingReport = useCallback(() => {
     if (streamingRef.current && rawReportRef.current) {
       // 流式：稳定块仅追加新增的闭合内容；尾部活动块按形态选择最快写入。
       const { stable, tail } = splitStableTail(pendingReportRef.current);
@@ -181,31 +180,36 @@ export default function Home() {
         streamWaitingLongRef.current = false;
         setStreamWaitingLong(false);
       }
-      // 滚动跟随节流：约 300ms 才做一次强制布局检查
-      const now = performance.now();
-      if (now - lastScrollCheckRef.current > 300) {
-        lastScrollCheckRef.current = now;
-        if (!userScrolledUpRef.current) {
-          const rect = rawReportRef.current.getBoundingClientRect();
-          if (rect.bottom > window.innerHeight + 8) rawReportRef.current.scrollIntoView({ block: "end", behavior: "auto" });
-        }
-      }
+      // 增量 flush 内不读取布局；滚动仅在合并后的绘制帧中执行。
+      if (!userScrolledUpRef.current) scrollFollowSchedulerRef.current?.schedule();
     } else {
       setReportText(pendingReportRef.current);
     }
-  };
+  }, []);
   const appendReportDelta = (text: string) => {
     if (!text) return;
     pendingReportRef.current += text;
-    if (reportFlushRef.current === null) {
-      reportFlushRef.current = window.setTimeout(flushPendingReport, FLUSH_INTERVAL_MS) as unknown as number;
-    }
+    reportFlushSchedulerRef.current?.schedule();
   };
+  useEffect(() => {
+    const reportScheduler = createFrameThrottler(flushPendingReport, FLUSH_INTERVAL_MS);
+    const scrollScheduler = createFrameThrottler(() => {
+      if (!userScrolledUpRef.current) rawReportRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
+    }, 300);
+    reportFlushSchedulerRef.current = reportScheduler;
+    scrollFollowSchedulerRef.current = scrollScheduler;
+    return () => {
+      reportScheduler.cancel();
+      scrollScheduler.cancel();
+      reportFlushSchedulerRef.current = null;
+      scrollFollowSchedulerRef.current = null;
+    };
+  }, [flushPendingReport]);
   const startReportStream = (payload: Record<string, unknown>) => {
     const run = streamRunGuardRef.current.begin();
     streamAbortRef.current?.();
     pendingReportRef.current = "";
-    if (reportFlushRef.current !== null) { window.clearTimeout(reportFlushRef.current); reportFlushRef.current = null; }
+    reportFlushSchedulerRef.current?.cancel();
     if (rawReportRef.current) {
       clearStreamRenderTargets(
         rawReportRef.current.querySelector<HTMLDivElement>(".rm-stable"),
@@ -234,7 +238,7 @@ export default function Home() {
       onRestart: () => {
         if (!streamRunGuardRef.current.isCurrent(run)) return;
         pendingReportRef.current = "";
-        if (reportFlushRef.current !== null) { window.clearTimeout(reportFlushRef.current); reportFlushRef.current = null; }
+        reportFlushSchedulerRef.current?.cancel();
         if (rawReportRef.current) {
           clearStreamRenderTargets(
             rawReportRef.current.querySelector<HTMLDivElement>(".rm-stable"),
@@ -264,7 +268,7 @@ export default function Home() {
         if (active === "synastry" && data.synastry) setSynastryPreview(data.synastry as typeof synastryPreview);
         setStreaming(false);
         streamAbortRef.current = null;
-        window.setTimeout(() => { if (!userScrolledUpRef.current && reportScrollRef.current) reportScrollRef.current.scrollIntoView({ block: "end", behavior: "auto" }); }, 0);
+        scrollFollowSchedulerRef.current?.schedule();
         toast.success("AI 解读仅保留在当前页面会话中");
       },
       onError: message => {
@@ -287,12 +291,12 @@ export default function Home() {
     streamAbortRef.current?.();
     streamAbortRef.current = null;
     streamingRef.current = false;
-    streamWaitingRef.current = false;
-    setStreamWaiting(false);
-    streamWaitingLongRef.current = false;
-    setStreamWaitingLong(false);
-    if (reportFlushRef.current !== null) { window.clearTimeout(reportFlushRef.current); reportFlushRef.current = null; }
-    setReportText(pendingReportRef.current);
+  streamWaitingRef.current = false;
+  setStreamWaiting(false);
+  streamWaitingLongRef.current = false;
+  setStreamWaitingLong(false);
+  reportFlushSchedulerRef.current?.cancel();
+  setReportText(pendingReportRef.current);
     setReportInterrupted(true);
     setStreaming(false);
   };
@@ -301,12 +305,12 @@ export default function Home() {
     streamAbortRef.current?.();
     streamAbortRef.current = null;
     streamingRef.current = false;
-    streamWaitingRef.current = false;
-    setStreamWaiting(false);
-    streamWaitingLongRef.current = false;
-    setStreamWaitingLong(false);
-    if (reportFlushRef.current !== null) { window.clearTimeout(reportFlushRef.current); reportFlushRef.current = null; }
-    pendingReportRef.current = "";
+  streamWaitingRef.current = false;
+  setStreamWaiting(false);
+  streamWaitingLongRef.current = false;
+  setStreamWaitingLong(false);
+  reportFlushSchedulerRef.current?.cancel();
+  pendingReportRef.current = "";
     setStreaming(false);
     setReportInterrupted(false);
     setReportTitle(report.title);
@@ -321,7 +325,9 @@ export default function Home() {
       userScrolledUpRef.current = rect.bottom - window.innerHeight > 240;
     };
     window.addEventListener("scroll", onWindowScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onWindowScroll);
+    return () => {
+      window.removeEventListener("scroll", onWindowScroll);
+    };
   }, []);
   // 流式等待呼吸：约 500ms 无新增量时，尾部光标切换为慢速呼吸，缓解“停顿感”
   useEffect(() => {
@@ -403,7 +409,7 @@ export default function Home() {
   const isolatedStack = active === "prashna" || active === "kp";
   const visibleReports = isolatedStack ? reports.filter(report => report.stack === active) : reports.filter(report => report.stack !== "prashna" && report.stack !== "kp");
   const selectModule = (id: ModuleKey) => { setActive(id); setReportText(null); setQuestion(""); setExtraContext(""); };
-  const clearSession = () => { streamAbortRef.current?.(); streamAbortRef.current = null; pendingReportRef.current = ""; if (reportFlushRef.current !== null) { window.clearTimeout(reportFlushRef.current); reportFlushRef.current = null; } setStreaming(false); setBirth({ ...initialBirth }); setPartner({ ...initialBirth }); setPrashnaLocation({ ...initialPrashnaLocation }); setSelectedChart(null); setReports([]); setReportText(null); setReportTitle(""); setQuestion(""); setEvents(""); setExtraContext(""); setFileName(""); setSynastryPreview(null); setModelConfig(defaultModelDraft()); setModelConfigOpen(false); setActive("natal"); toast.success("当前临时会话已清除"); };
+  const clearSession = () => { streamAbortRef.current?.(); streamAbortRef.current = null; pendingReportRef.current = ""; reportFlushSchedulerRef.current?.cancel(); setStreaming(false); setBirth({ ...initialBirth }); setPartner({ ...initialBirth }); setPrashnaLocation({ ...initialPrashnaLocation }); setSelectedChart(null); setReports([]); setReportText(null); setReportTitle(""); setQuestion(""); setEvents(""); setExtraContext(""); setFileName(""); setSynastryPreview(null); setModelConfig(defaultModelDraft()); setModelConfigOpen(false); setActive("natal"); toast.success("当前临时会话已清除"); };
   const run = (stack: "natal" | "prashna" | "tajika" | "kp" | "synastry" | "rectification", moduleId: string, additions: Record<string, unknown> = {}) => {
     const needsChart = ["p1p12", "career", "love", "tajika", "synastry", "rectification"].includes(active);
     if (needsChart && !selectedChart && active !== "synastry") { toast.error("请先在本次会话中完成出生信息排盘"); return; }

@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic } from "./vite";
 import { handleReportStream } from "../stream";
+import { resolveAmapContentType } from "./amapProxy";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -50,7 +51,7 @@ async function startServer() {
     try {
       const response = await fetch(upstream);
       const body = await response.text();
-      res.status(response.status).type(response.headers.get("content-type") || "application/json").send(body);
+      res.status(response.status).set("Content-Type", resolveAmapContentType(response.headers.get("content-type"), upstream)).send(body);
     } catch {
       res.status(502).json({ status: "0", info: "高德地图服务暂时不可用" });
     }
