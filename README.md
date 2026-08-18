@@ -71,8 +71,8 @@ docs/                   产品与部署文档
 请使用 Node.js 22 与 pnpm。克隆仓库后，在项目根目录安装依赖：
 
 ```bash
-git clone https://github.com/ljdmx/vedic-jyotish-deployment.git
-cd vedic-jyotish-deployment
+git clone https://github.com/ljdmx/vedic-jyotish.git
+cd vedic-jyotish
 pnpm install --frozen-lockfile
 ```
 
