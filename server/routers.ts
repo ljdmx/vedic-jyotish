@@ -48,6 +48,29 @@ function currentTimezoneOffsetFor(timezone: string, instant = new Date()) {
   return Math.round((shownAsUtc - Math.floor(instant.getTime() / 1_000) * 1_000) / 60_000);
 }
 
+function hasValidCalendarDate(date: string, time: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  if (![year, month, day, hour, minute].every(Number.isInteger) || hour > 23 || minute > 59) return false;
+  const candidate = new Date(Date.UTC(year, month - 1, day, hour, minute));
+  return candidate.getUTCFullYear() === year && candidate.getUTCMonth() === month - 1 && candidate.getUTCDate() === day;
+}
+
+/**
+ * 用用户已定位的坐标核对历史时点对应的 UTC 偏移，避免夏令时或手填时区使工作盘误配。
+ * 这保证输入与计算口径一致，不将占星解读包装为确定性的未来预测。
+ */
+function assertBirthInputConsistent(input: BirthInput) {
+  if (!hasValidCalendarDate(input.date, input.time)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "出生日期或时间不是有效的日历时刻，请重新确认" });
+  }
+  const timezone = tzLookup(input.latitude, input.longitude);
+  const expectedOffset = timezoneOffsetFor(input.date, input.time, timezone);
+  if (input.timezoneOffset !== expectedOffset) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `出生时区与定位地点不一致：${timezone} 在该时点应为 UTC${expectedOffset >= 0 ? "+" : ""}${(expectedOffset / 60).toFixed(2)}。请重新定位地点后再计算。` });
+  }
+}
+
 type AmapGeocodeResponse = {
   status?: string;
   info?: string;
@@ -147,6 +170,8 @@ export type ReportInput = z.infer<typeof reportInputSchema>;
  */
 export async function prepareReportAnalysis(input: ReportInput) {
   const stack = input.stack as AnalysisStack;
+  if (input.chartInput) assertBirthInputConsistent(input.chartInput);
+  if (input.partnerInput) assertBirthInputConsistent(input.partnerInput);
   const baseChart = input.chartInput ? calculateVedicChart(input.chartInput) : undefined;
   if (stack !== "prashna" && stack !== "kp" && !baseChart) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "请先在当前临时会话中完成出生信息排盘" });
@@ -211,7 +236,10 @@ export const appRouter = router({
     })),
   }),
   chart: router({
-    calculate: publicProcedure.input(birthSchema).mutation(({ input }) => calculateVedicChart(input)),
+    calculate: publicProcedure.input(birthSchema).mutation(({ input }) => {
+      assertBirthInputConsistent(input);
+      return calculateVedicChart(input);
+    }),
   }),
   model: router({
     status: publicProcedure.query(() => ({ configured: Boolean(process.env.AGNES_API_KEY) })),

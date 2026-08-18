@@ -3,12 +3,14 @@ import type { Request, Response } from "express";
 import { prepareReportAnalysis, reportInputSchema } from "./routers";
 import { generateAnalysisStream, moduleTitle } from "./vedic";
 import { createStreamMetrics } from "./stream-metrics";
+import { startStreamHeartbeat } from "./stream-heartbeat";
 
 /**
  * 流式报告端点：POST /api/stream/report
  * 以 SSE（text/event-stream）实时推送模型增量，事件负载为单行 JSON：
  *   {"type":"delta","text":"..."}    增量正文
  *   {"type":"restart"}                遗留兼容事件（当前不清屏）
+ *   {"type":"heartbeat"}              无内容连接活动信号
  *   {"type":"done","report":{...},"metrics":{...}} 结束并携带完整报告、盘面和无内容指标
  *   {"type":"error","message":"..."} 失败
  * 与 tRPC report.run 共享同一套校验与星盘构建逻辑（prepareReportAnalysis）。
@@ -45,6 +47,7 @@ export async function handleReportStream(req: Request, res: Response) {
   const emit = (payload: Record<string, unknown>) => {
     if (!clientDisconnected && !res.writableEnded) writeSse(res, { ...payload, sequence: ++sequence });
   };
+  let stopHeartbeat: (() => void) | null = null;
 
   let input;
   try {
@@ -53,6 +56,7 @@ export async function handleReportStream(req: Request, res: Response) {
     res.status(400).json({ error: "请求参数不符合接口规范" });
     return;
   }
+  stopHeartbeat = startStreamHeartbeat(() => emit({ type: "heartbeat" }));
 
   try {
     const { stack, analysis, previewChart, rectification, synastry } = await prepareReportAnalysis(input);
@@ -98,6 +102,7 @@ export async function handleReportStream(req: Request, res: Response) {
     }
     res.end();
   } finally {
+    stopHeartbeat?.();
     req.off("aborted", cancelIfDisconnected);
     res.off("close", cancelIfDisconnected);
   }

@@ -13,7 +13,7 @@ vi.mock("./vedic", async importOriginal => {
 
 import { appRouter } from "./routers";
 
-const birth = { name: "Route Test", date: "1990-08-15", time: "10:30", place: "Shanghai", latitude: 31.2304, longitude: 121.4737, timezoneOffset: 480, timeAccuracy: "精确到分钟", timeSource: "出生证明 / 医院记录", timeBasis: "wall_clock" as const };
+const birth = { name: "Route Test", date: "1990-08-15", time: "10:30", place: "Shanghai", latitude: 31.2304, longitude: 121.4737, timezoneOffset: 540, timeAccuracy: "精确到分钟", timeSource: "出生证明 / 医院记录", timeBasis: "wall_clock" as const };
 const prashnaLocation = { name: "Prashna", place: "Shanghai", latitude: 31.2304, longitude: 121.4737, timezoneOffset: 480, timeAccuracy: "当前起盘" };
 
 function context(): TrpcContext {
@@ -49,6 +49,12 @@ describe("vedic tRPC temporary-session routes", () => {
     expect(chart.chartType).toBe("natal");
     expect(chart.planets).toHaveLength(9);
     expect(chart.grahaDrishti.some(item => item.sourcePlanet === "Saturn")).toBe(true);
+  });
+
+  it("拒绝无效日历日期与和地点历史偏移不一致的出生输入", async () => {
+    const caller = appRouter.createCaller(context());
+    await expect(caller.chart.calculate({ ...birth, date: "1990-02-30" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.chart.calculate({ ...birth, timezoneOffset: 480 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("resolves a timezone and historical offset from geographic coordinates without a user session", async () => {
@@ -162,7 +168,7 @@ describe("vedic tRPC temporary-session routes", () => {
   });
 
   it("builds directional whole-sign synastry with Graha Drishti and no account record", async () => {
-    const result = await appRouter.createCaller(context()).synastry.preview({ birthA: birth, birthB: { ...birth, name: "Partner", date: "1992-03-04", time: "16:20", place: "Delhi", latitude: 28.6139, longitude: 77.209 } });
+    const result = await appRouter.createCaller(context()).synastry.preview({ birthA: birth, birthB: { ...birth, name: "Partner", date: "1992-03-04", time: "16:20", place: "Delhi", latitude: 28.6139, longitude: 77.209, timezoneOffset: 330 } });
     expect(result.synastry.methodology).toContain("整宫");
     expect(result.synastry.drishti.length).toBeGreaterThan(0);
     expect(result.chartA.chartType).toBe("natal");

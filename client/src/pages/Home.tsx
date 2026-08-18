@@ -147,6 +147,8 @@ export default function Home() {
   const renderedStableTextRef = useRef("");
   /** 最近一次收到模型增量的时间（用于等待呼吸提示）。 */
   const lastChunkAtRef = useRef(Date.now());
+  /** 最近一次无内容 SSE 心跳；与模型正文分开记录，避免掩盖真实输出停顿。 */
+  const lastHeartbeatAtRef = useRef(0);
   const [streamWaiting, setStreamWaiting] = useState(false);
   const streamWaitingRef = useRef(false);
   const [streamWaitingLong, setStreamWaitingLong] = useState(false);
@@ -175,6 +177,7 @@ export default function Home() {
         }
       }
       lastChunkAtRef.current = Date.now();
+      lastHeartbeatAtRef.current = 0;
       if (streamWaitingRef.current) {
         streamWaitingRef.current = false;
         setStreamWaiting(false);
@@ -221,6 +224,7 @@ export default function Home() {
     }
     renderedStableTextRef.current = "";
     lastChunkAtRef.current = Date.now();
+    lastHeartbeatAtRef.current = 0;
     streamWaitingRef.current = false;
     setStreamWaiting(false);
     streamWaitingLongRef.current = false;
@@ -237,7 +241,12 @@ export default function Home() {
       onDelta: text => {
         if (!streamRunGuardRef.current.isCurrent(run)) return;
         lastChunkAtRef.current = Date.now();
+        lastHeartbeatAtRef.current = 0;
         appendReportDelta(text);
+      },
+      onHeartbeat: () => {
+        if (!streamRunGuardRef.current.isCurrent(run)) return;
+        lastHeartbeatAtRef.current = Date.now();
       },
       onRestart: () => {
         if (!streamRunGuardRef.current.isCurrent(run)) return;
@@ -245,6 +254,7 @@ export default function Home() {
         // 新服务端会将 P1–P12 的补全内容作为续写 delta 转发，因此此分支不再清屏。
         pendingReportRef.current = retainContentOnRestart(pendingReportRef.current);
         lastChunkAtRef.current = Date.now();
+        lastHeartbeatAtRef.current = 0;
         streamWaitingRef.current = false;
         setStreamWaiting(false);
         streamWaitingLongRef.current = false;
@@ -340,7 +350,7 @@ export default function Home() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (!streamingRef.current || !rawReportRef.current) return;
-      const waitState = getStreamWaitState(Date.now(), lastChunkAtRef.current);
+      const waitState = getStreamWaitState(Date.now(), lastChunkAtRef.current, lastHeartbeatAtRef.current);
       const waiting = waitState !== "writing";
       const waitingLong = waitState === "long-waiting";
       if (waiting !== streamWaitingRef.current) {

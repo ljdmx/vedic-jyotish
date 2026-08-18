@@ -3,6 +3,7 @@
  * 事件负载（单行 JSON）：
  *   {"type":"delta","text":"..."}     增量正文
  *   {"type":"restart"}                P1–P12 重试清屏
+ *   {"type":"heartbeat"}              服务端连接仍存活（不携带正文）
  *   {"type":"done","report":{...},...} 结束并携带完整报告
  *   {"type":"error","message":"..."}  失败
  * 返回取消函数；组件卸载或切换模块时应调用以避免无用写入。
@@ -19,6 +20,7 @@ export type StreamReportResult = {
 export type StreamReportHandlers = {
   onDelta: (text: string) => void;
   onRestart: () => void;
+  onHeartbeat?: () => void;
   onDone: (result: StreamReportResult) => void;
   onError: (message: string) => void;
 };
@@ -102,6 +104,7 @@ export function streamReport(payload: Record<string, unknown>, handlers: StreamR
           }
           if (parsed.type === "delta") handlers.onDelta(typeof parsed.text === "string" ? parsed.text : "");
           else if (parsed.type === "restart") handlers.onRestart();
+          else if (parsed.type === "heartbeat") handlers.onHeartbeat?.();
           else if (parsed.type === "done") {
             terminalEvent = true;
             handlers.onDone(parsed as unknown as StreamReportResult);
