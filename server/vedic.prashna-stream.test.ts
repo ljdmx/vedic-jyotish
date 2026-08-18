@@ -28,13 +28,16 @@ describe("Prashna 裁决的流式连续输出", () => {
     }, event => events.push(event));
 
     const deltas = events.filter((event): event is Extract<AnalysisStreamEvent, { type: "delta" }> => event.type === "delta");
-    expect(deltas[0]?.text).toContain("## Prashna 裁决摘要");
-    expect(deltas[0]?.text).toContain("当前裁决：");
-    expect(deltas[0]?.text).toContain("事项映射：H10");
-    expect(deltas.slice(1).map(event => event.text)).toEqual(streamedChunks);
+    expect(deltas[0]?.text).toContain("## 先说结论");
+    expect(deltas[0]?.text).toContain("现在的建议：");
+    expect(deltas[1]?.text).toContain("### 为什么这样说");
+    expect(deltas[2]?.text).toContain("### 先留意这些条件");
+    expect(deltas[3]?.text).toContain("### 想核对盘面再看这里");
+    expect(deltas[4]?.text).toContain("计算核对");
+    expect(deltas.slice(5).map(event => event.text)).toEqual(streamedChunks);
     expect(events.some(event => event.type === "restart")).toBe(false);
     expect(events.at(-1)).toEqual({ type: "done" });
-    expect(result).toContain("Prashna 裁决摘要");
+    expect(result).toContain("先说结论");
     expect(result).toContain(streamedChunks.join(""));
   });
 });

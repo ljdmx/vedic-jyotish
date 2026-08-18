@@ -21,7 +21,7 @@ const MODULE_PROTOCOLS: Record<string, string> = {
   love: "关系专题只根据当前工作盘的第7宫、其星座、宫内星、Venus/Moon 和可见整宫关系写作。先写可能的互动节律，再列限制与现实验证点；不根据用户愿望制造确定关系结果，也不编造 DK、UL、D9 或 Dasha。",
   rectification: "必须先列出报时来源、墙钟/标准时、时间精度和事件数量。将每个候选保持并列，按“带日期事件（硬证据）”与“特质（辅证）”分表；没有至少5个独立事件、或现有工作盘未包含 D9/D10 换座审计时，结论只能是初步候选比较，不能宣称已校准至分钟。",
   synastry: "按六维矩阵输出：情绪安全、吸引与亲密、沟通修复、长期承载、现实协作、当前时机。每一维分别列支持、制约、方向差异和现实验证点；月宿只作筛查。不要给单一分数，也不要读取任一人的私密叙事作为生成依据。",
-  prashna: "系统已先输出“Prashna 裁决摘要”，其中包含当前裁决、问题宫映射、支持/制约证据及月亮短期观察窗。你必须承接该摘要，用 4 个紧凑小节补充：问题含义、支持证据、制约条件、现实验证步骤。不得改写、否定或重复系统裁决摘要；不得虚构 Dasha、分盘、古典三档或具体事件必然发生时间。边界说明最多 2 句，并放在最后。",
+  prashna: "系统已先输出“先说结论、为什么这样说、先留意这些条件、想核对盘面再看这里”四个稳定段落。你只能继续追加“现实里怎么验证”与“接下来怎么做”两节，每节不超过 4 条、每条不超过 28 个汉字。先用白话说结果和行动，再在括号内解释 H 宫、月亮或 Graha Drishti；不要把技术术语当标题，不得改写、否定或重复系统结论。不得虚构 Dasha、分盘、古典三档或具体事件必然发生时间。边界说明最多 1 句，放在最后。",
   tajika: "先分开列“本命基础”和“年度太阳回归工作点”，再仅讨论两者可观察的对照。年度层不得覆盖终身结构；当前没有 Tajika 十六 Yoga、deeptamsha 或 applying/separating 算法，因此不得命名或伪造该类规则，也不得称为完整 Tajika 判读。",
   kp: "先说明所选 1–249 编号的星宿、星主、子主与仍缺字段。当前应用未实现 Krishnamurti ayanamsa、号码 Asc、Placidus cusps、A/B/C/D significator、Ruling Planets、四级 period 或 KP timing；不得输出当前偏向、promise、denial 或时间结论。",
 };
@@ -53,9 +53,16 @@ export function buildReportEvidenceLedger(input: Pick<Parameters<typeof generate
   return `## 计算依据与置信边界（系统记录）\n\n- **输入时空**：${chart.birth.date} ${chart.birth.time} · ${chart.birth.place} · ${chart.birth.latitude.toFixed(4)}, ${chart.birth.longitude.toFixed(4)} · UTC${audit.timezoneOffsetMinutes >= 0 ? "+" : ""}${(audit.timezoneOffsetMinutes / 60).toFixed(2)}。\n- **时间质量**：${audit.timePrecision}；来源：${audit.timeSource}；时制：${audit.timeBasis}。${timeBoundary}\n- **计算口径**：${chart.ayanamsa.name}；${audit.calculationScope.join("、")}。\n- **未纳入计算**：${audit.excludedFromThisChart.join("、")}。\n- **阅读规则**：后文只能把可见盘面位置、宫位、月宿或 Graha Drishti 作为依据；资料未提供或未计算的项目必须标注为“未计算”，不得补全为确定结论。`;
 }
 
+function buildReportPreludeSegments(input: Parameters<typeof generateAnalysis>[0]) {
+  const ledger = buildReportEvidenceLedger(input);
+  if (input.stack === "prashna" && input.chart) {
+    return [...buildPrashnaDecision(input.chart, input.question).streamSegments, ledger];
+  }
+  return [ledger];
+}
+
 function buildReportPrelude(input: Parameters<typeof generateAnalysis>[0]) {
-  const decision = input.stack === "prashna" && input.chart ? buildPrashnaDecision(input.chart, input.question).markdown : "";
-  return [decision, buildReportEvidenceLedger(input)].filter(Boolean).join("\n\n");
+  return buildReportPreludeSegments(input).filter(Boolean).join("\n\n");
 }
 
 function finaliseReport(content: string, input: Parameters<typeof generateAnalysis>[0]) {
@@ -191,9 +198,14 @@ export async function generateAnalysisStream(
   const evidenceSystem = `${system}\n${EVIDENCE_PROTOCOL}`;
   const userMessage = `以下是经过计算或用户提供的数据。请仅据此完成当前模块，并保留不确定性：\n\n${JSON.stringify(data, null, 2)}`;
 
-  const reportPrelude = buildReportPrelude(input);
-  let emittedContent = `${reportPrelude}\n\n`;
-  onEvent({ type: "delta", text: emittedContent });
+  const reportPreludeSegments = buildReportPreludeSegments(input).filter(Boolean);
+  let emittedContent = "";
+  reportPreludeSegments.forEach((segment, index) => {
+    const text = `${index > 0 ? "\n\n" : ""}${segment}`;
+    emittedContent += text;
+    onEvent({ type: "delta", text });
+  });
+  emittedContent += "\n\n";
   const collect = async (messages: { role: "system" | "user" | "assistant"; content: unknown }[], maxTokens?: number, emit = true) => {
     let content = "";
     for await (const chunk of streamCompatibleModel({ selection: input.modelConfig, maxTokens, messages, signal })) {

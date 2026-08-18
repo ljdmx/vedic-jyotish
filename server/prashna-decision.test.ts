@@ -12,9 +12,12 @@ describe("基础 Prashna 裁决", () => {
     expect(decision.queryHouse).toBe(10);
     expect(["可推进", "条件性推进", "建议暂缓"]).toContain(decision.verdict);
     expect(decision.moonWindowHours).toBeGreaterThan(0);
-    expect(decision.markdown).toContain("当前裁决：");
-    expect(decision.markdown).toContain("事项映射：H10");
-    expect(decision.markdown).toContain("短期观察窗：");
+    expect(decision.markdown).toContain("## 先说结论");
+    expect(decision.markdown).toContain("现在的建议：");
+    expect(decision.markdown).toContain("下一步：");
+    expect(decision.markdown).toContain("先观察：");
+    expect(decision.streamSegments).toHaveLength(4);
+    expect(decision.streamSegments[3]).toContain("想核对盘面再看这里");
   });
 
   it("对关系、资源和居住主题使用不同问题宫，而非一律给出泛化说法", () => {
