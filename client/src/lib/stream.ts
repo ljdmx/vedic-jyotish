@@ -23,6 +23,26 @@ export type StreamReportHandlers = {
   onError: (message: string) => void;
 };
 
+/**
+ * 为单页中的连续报告请求提供会话令牌。
+ * 新会话或主动取消都会使旧回调失效，避免网络延迟下旧流写入新报告。
+ */
+export function createStreamRunGuard() {
+  let currentRun = 0;
+  return {
+    begin() {
+      currentRun += 1;
+      return currentRun;
+    },
+    invalidate() {
+      currentRun += 1;
+    },
+    isCurrent(run: number) {
+      return run === currentRun;
+    },
+  };
+}
+
 export function parseSseEvents(accumulated: string): { remaining: string; events: string[] } {
   const blocks = accumulated.split(/\r?\n\r?\n/);
   const remaining = blocks.pop() ?? "";

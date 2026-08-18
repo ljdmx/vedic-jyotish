@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { streamReport } from "./stream";
+import { createStreamRunGuard, streamReport } from "./stream";
 
 function sseResponse(chunks: string[]) {
   const encoder = new TextEncoder();
@@ -14,6 +14,19 @@ function sseResponse(chunks: string[]) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("浏览器侧报告流", () => {
+  it("新会话或主动取消会使旧流回调失效", () => {
+    const guard = createStreamRunGuard();
+    const first = guard.begin();
+    expect(guard.isCurrent(first)).toBe(true);
+
+    const second = guard.begin();
+    expect(guard.isCurrent(first)).toBe(false);
+    expect(guard.isCurrent(second)).toBe(true);
+
+    guard.invalidate();
+    expect(guard.isCurrent(second)).toBe(false);
+  });
+
   it("按 sequence 忽略重复事件，并在 done 后结束", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
       'data: {"type":"delta","text":"第一段","sequence":1}\n\n',
@@ -48,4 +61,3 @@ describe("浏览器侧报告流", () => {
     expect(result).toContain("完成事件前中断");
   });
 });
-

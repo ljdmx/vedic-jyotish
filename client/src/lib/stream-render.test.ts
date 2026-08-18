@@ -5,9 +5,10 @@ function createTarget() {
   let html = "";
   const appended: string[] = [];
   let cleared = 0;
+  let replacements = 0;
   const target: StreamRenderTarget = {
     get innerHTML() { return html; },
-    set innerHTML(value: string) { html = value; },
+    set innerHTML(value: string) { replacements++; html = value; },
     insertAdjacentHTML: (_position: InsertPosition, value: string) => {
       appended.push(value);
       html += value;
@@ -17,7 +18,7 @@ function createTarget() {
       html = "";
     },
   };
-  return { target, appended, get html() { return html; }, get cleared() { return cleared; } };
+  return { target, appended, get html() { return html; }, get cleared() { return cleared; }, get replacements() { return replacements; } };
 }
 
 describe("流式稳定区增量渲染", () => {
@@ -42,6 +43,18 @@ describe("流式稳定区增量渲染", () => {
     expect(view.appended).toHaveLength(writes);
   });
 
+  it("长报告的稳定区持续追加时不会触发全量 innerHTML 重建", () => {
+    const view = createTarget();
+    let stable = "";
+    for (let index = 1; index <= 120; index++) {
+      stable = appendStableMarkdown(view.target, stable, `${stable}第 ${index} 段稳定内容\n`);
+    }
+
+    expect(view.appended).toHaveLength(120);
+    expect(view.replacements).toBe(0);
+    expect(view.html).toContain("第 120 段稳定内容");
+  });
+
   it("重启时会同时清空稳定区与活动尾部", () => {
     const stable = createTarget();
     const tail = createTarget();
@@ -56,4 +69,3 @@ describe("流式稳定区增量渲染", () => {
     expect(tail.html).toBe("");
   });
 });
-
