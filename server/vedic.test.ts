@@ -84,6 +84,13 @@ describe("vedic chart engine", () => {
     expect(ledger).toContain("原生 MD/AD/PD");
   });
 
+  it("为 Prashna 使用紧凑计算核对，而将明确裁决交由系统前置摘要输出", () => {
+    const chart = calculateVedicChart(testBirth, "prashna");
+    const ledger = buildReportEvidenceLedger({ stack: "prashna", module: "prashna", chart });
+    expect(ledger).toContain("计算核对");
+    expect(ledger).not.toContain("阅读规则");
+  });
+
   it("builds a complete ordered KP 1–249 sub-lord table", () => {
     const table = buildKp249Table();
     expect(table).toHaveLength(249);

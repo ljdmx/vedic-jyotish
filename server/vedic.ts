@@ -1,6 +1,7 @@
 import { calculatePrashnaChart, calculateTajikaChart, calculateVedicChart, compactChartForPrompt, type BirthInput, type VedicChart } from "../shared/vedic-engine";
 import type { TemporaryModelConfig } from "../shared/model-config";
 import { extractCompatibleText, invokeCompatibleModel, streamCompatibleModel } from "./model-provider";
+import { buildPrashnaDecision } from "./prashna-decision";
 
 export type AnalysisStack = "natal" | "prashna" | "tajika" | "kp" | "synastry" | "rectification" | "document";
 
@@ -20,14 +21,14 @@ const MODULE_PROTOCOLS: Record<string, string> = {
   love: "关系专题只根据当前工作盘的第7宫、其星座、宫内星、Venus/Moon 和可见整宫关系写作。先写可能的互动节律，再列限制与现实验证点；不根据用户愿望制造确定关系结果，也不编造 DK、UL、D9 或 Dasha。",
   rectification: "必须先列出报时来源、墙钟/标准时、时间精度和事件数量。将每个候选保持并列，按“带日期事件（硬证据）”与“特质（辅证）”分表；没有至少5个独立事件、或现有工作盘未包含 D9/D10 换座审计时，结论只能是初步候选比较，不能宣称已校准至分钟。",
   synastry: "按六维矩阵输出：情绪安全、吸引与亲密、沟通修复、长期承载、现实协作、当前时机。每一维分别列支持、制约、方向差异和现实验证点；月宿只作筛查。不要给单一分数，也不要读取任一人的私密叙事作为生成依据。",
-  prashna: "固定输出：1.先说人话（当前基础时盘可核对什么、尚缺什么）；2.问题范围与输入稳定性；3.D1 白名单事实；4.Timing 状态（未启用）；5.规则账本状态；6.Moon 仅作背景；7.体系边界。当前应用未实现来源标签化 rule_id 账本、题型 A/B/C 和古典三档裁决，因此不得输出“成／悬／不成”、结果偏向或事件建议；必须明确说明需要完整标准层判定器。",
+  prashna: "系统已先输出“Prashna 裁决摘要”，其中包含当前裁决、问题宫映射、支持/制约证据及月亮短期观察窗。你必须承接该摘要，用 4 个紧凑小节补充：问题含义、支持证据、制约条件、现实验证步骤。不得改写、否定或重复系统裁决摘要；不得虚构 Dasha、分盘、古典三档或具体事件必然发生时间。边界说明最多 2 句，并放在最后。",
   tajika: "先分开列“本命基础”和“年度太阳回归工作点”，再仅讨论两者可观察的对照。年度层不得覆盖终身结构；当前没有 Tajika 十六 Yoga、deeptamsha 或 applying/separating 算法，因此不得命名或伪造该类规则，也不得称为完整 Tajika 判读。",
   kp: "先说明所选 1–249 编号的星宿、星主、子主与仍缺字段。当前应用未实现 Krishnamurti ayanamsa、号码 Asc、Placidus cusps、A/B/C/D significator、Ruling Planets、四级 period 或 KP timing；不得输出当前偏向、promise、denial 或时间结论。",
 };
 
 export function moduleTitle(module: string) {
   const titles: Record<string, string> = {
-    p1p12: "P1–P12 D1 十二宫概览", career: "职业专项", love: "恋爱与伴侣专项", reader: "盘面识读", rectification: "出生时间候选比较", synastry: "双人合盘", prashna: "Prashna 基础时盘核对", tajika: "Tajika 年度回归工作点", kp: "KP 1–249 资料核对",
+    p1p12: "P1–P12 D1 十二宫概览", career: "职业专项", love: "恋爱与伴侣专项", reader: "盘面识读", rectification: "出生时间候选比较", synastry: "双人合盘", prashna: "Prashna 问盘裁决", tajika: "Tajika 年度回归工作点", kp: "KP 1–249 资料核对",
   };
   return titles[module] || "吠陀占星分析";
 }
@@ -42,6 +43,9 @@ export function buildReportEvidenceLedger(input: Pick<Parameters<typeof generate
     return `## 计算依据与置信边界（系统记录）\n\n- **分析栈**：${input.stack}；模块：${moduleTitle(input.module)}。\n- **可用材料**：仅使用本次明确提交的独立资料，不补写缺失盘面字段。\n- **结论边界**：缺少可计算盘面或完整规则账本时，仅说明资料状态与下一步，不给出确定性预测。`;
   }
   const audit = chart.audit;
+  if (input.stack === "prashna") {
+    return `> **计算核对**：${chart.birth.date} ${chart.birth.time} · ${chart.birth.place} · ${chart.ayanamsa.name} · ${audit.calculationScope.join("、")}。\n> **未纳入**：${audit.excludedFromThisChart.slice(0, 4).join("、")}；因此仅按当前基础规则给出裁决与观察窗。`;
+  }
   const timeIsVerified = /精确到分钟|系统捕获到秒/.test(audit.timePrecision) && audit.timeBasis !== "unknown";
   const timeBoundary = timeIsVerified
     ? "当前时间精度可用于本应用 D1 工作盘；仍不等同于已完成分盘或时限判断审计。"
@@ -49,8 +53,13 @@ export function buildReportEvidenceLedger(input: Pick<Parameters<typeof generate
   return `## 计算依据与置信边界（系统记录）\n\n- **输入时空**：${chart.birth.date} ${chart.birth.time} · ${chart.birth.place} · ${chart.birth.latitude.toFixed(4)}, ${chart.birth.longitude.toFixed(4)} · UTC${audit.timezoneOffsetMinutes >= 0 ? "+" : ""}${(audit.timezoneOffsetMinutes / 60).toFixed(2)}。\n- **时间质量**：${audit.timePrecision}；来源：${audit.timeSource}；时制：${audit.timeBasis}。${timeBoundary}\n- **计算口径**：${chart.ayanamsa.name}；${audit.calculationScope.join("、")}。\n- **未纳入计算**：${audit.excludedFromThisChart.join("、")}。\n- **阅读规则**：后文只能把可见盘面位置、宫位、月宿或 Graha Drishti 作为依据；资料未提供或未计算的项目必须标注为“未计算”，不得补全为确定结论。`;
 }
 
+function buildReportPrelude(input: Parameters<typeof generateAnalysis>[0]) {
+  const decision = input.stack === "prashna" && input.chart ? buildPrashnaDecision(input.chart, input.question).markdown : "";
+  return [decision, buildReportEvidenceLedger(input)].filter(Boolean).join("\n\n");
+}
+
 function finaliseReport(content: string, input: Parameters<typeof generateAnalysis>[0]) {
-  return `${buildReportEvidenceLedger(input)}\n\n${content}`;
+  return `${buildReportPrelude(input)}\n\n${content}`;
 }
 
 const EVIDENCE_PROTOCOL = "每一条关键解读都要在同段用“依据：”明确引用输入中实际存在的行星位置、H 宫位、月宿或 Graha Drishti；不可用的数据直接写“未计算”。出生时间精度或时制不充分时，禁止把宫位或时限解释成确定事实。";
@@ -109,7 +118,7 @@ export async function generateAnalysis(input: {
     events: input.events || undefined,
     question: input.question || undefined,
     extraContext: input.extraContext || undefined,
-    systemEvidenceLedger: buildReportEvidenceLedger(input),
+    systemEvidenceLedger: buildReportPrelude(input),
   };
   const system = `你是一名使用中文撰写、证据透明的吠陀占星研究助理。当前模块：${moduleTitle(input.module)}。${STACK_BOUNDARIES[input.stack]}
 模块协议：${MODULE_PROTOCOLS[input.module] || "先说人话，再写可复核的盘面证据、限制/反证与可验证问题。"}
@@ -172,7 +181,7 @@ export async function generateAnalysisStream(
     events: input.events || undefined,
     question: input.question || undefined,
     extraContext: input.extraContext || undefined,
-    systemEvidenceLedger: buildReportEvidenceLedger(input),
+    systemEvidenceLedger: buildReportPrelude(input),
   };
   const system = `你是一名使用中文撰写、证据透明的吠陀占星研究助理。当前模块：${moduleTitle(input.module)}。${STACK_BOUNDARIES[input.stack]}
 模块协议：${MODULE_PROTOCOLS[input.module] || "先说人话，再写可复核的盘面证据、限制/反证与可验证问题。"}
@@ -182,8 +191,8 @@ export async function generateAnalysisStream(
   const evidenceSystem = `${system}\n${EVIDENCE_PROTOCOL}`;
   const userMessage = `以下是经过计算或用户提供的数据。请仅据此完成当前模块，并保留不确定性：\n\n${JSON.stringify(data, null, 2)}`;
 
-  const evidenceLedger = buildReportEvidenceLedger(input);
-  let emittedContent = `${evidenceLedger}\n\n`;
+  const reportPrelude = buildReportPrelude(input);
+  let emittedContent = `${reportPrelude}\n\n`;
   onEvent({ type: "delta", text: emittedContent });
   const collect = async (messages: { role: "system" | "user" | "assistant"; content: unknown }[], maxTokens?: number, emit = true) => {
     let content = "";
@@ -203,8 +212,8 @@ export async function generateAnalysisStream(
       { role: "system", content: evidenceSystem },
       { role: "user", content: userMessage },
     ], input.module === "p1p12" ? 6000 : undefined);
-    if (firstPass && input.module !== "p1p12") return firstPass;
-    if (firstPass && hasCompleteP1P12Report(firstPass)) return firstPass;
+    if (firstPass && input.module !== "p1p12") return emittedContent;
+    if (firstPass && hasCompleteP1P12Report(firstPass)) return emittedContent;
 
     console.warn("[Vedic] P1–P12 response was incomplete; requesting only missing sections without clearing the stream");
     const retryContent = await collect([
@@ -219,20 +228,21 @@ export async function generateAnalysisStream(
       emittedContent += appended;
       onEvent({ type: "delta", text: appended });
       const combined = `${firstPass}${appended}`;
-      if (hasCompleteP1P12Report(combined)) return combined;
+      if (hasCompleteP1P12Report(combined)) return emittedContent;
     }
 
     const notice = "\n\n### 生成边界\n本次 P1–P12 续写未能补齐所有宫位；已保留已生成内容，可重新生成以取得完整版本。";
     emittedContent += notice;
     onEvent({ type: "delta", text: notice });
-    return `${firstPass}${notice}`;
+    return emittedContent;
   } catch (error) {
     if (signal?.aborted) throw error;
     console.error("[Vedic] AI streaming analysis failed", error);
     if (emittedContent) {
       const notice = "\n\n### 生成中断\n已保留已生成内容；可重新生成以取得完整版本。";
+      emittedContent += notice;
       onEvent({ type: "delta", text: notice });
-      return `${emittedContent}${notice}`;
+      return emittedContent;
     }
     const fallback = fallbackReport(input.module, input.chart);
     onEvent({ type: "delta", text: fallback });
