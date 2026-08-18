@@ -3,7 +3,7 @@
 > 一套以恒星黄道为基础的临时吠陀占星工作台，用纸墨天文手稿的视觉语言呈现排盘、问盘与流式解读。
 
 **线上地址：** <https://vedicjyotish-zx73zald.manus.space>  
-**源码仓库：** <https://github.com/ljdmx/vedic-jyotish-deployment>
+**源码仓库：** <https://github.com/ljdmx/vedic-jyotish>
 
 ## 页面预览
 
