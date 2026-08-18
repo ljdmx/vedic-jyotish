@@ -6,6 +6,7 @@ import { renderLightMarkdown, splitStableTail } from "@/lib/light-markdown";
 import { appendStableMarkdown, clearStreamRenderTargets } from "@/lib/stream-render";
 import { shouldScheduleLocationSearch } from "@/lib/location-search";
 import { createFrameThrottler } from "@/lib/frame-throttler";
+import { getReportRenderMode, retainContentOnRestart } from "@/lib/report-stream-lifecycle";
 import { ReportReadingNote, ReportStreamInkwell, ReportStreamMeta } from "@/components/ReportStreamState";
 import type { VedicChart as VedicChartData } from "@shared/vedic-engine";
 import type { KpSubLordRow } from "@shared/kp";
@@ -130,6 +131,8 @@ export default function Home() {
   });
   // ---- AI 报告流式输出（SSE /api/stream/report） ----
   const [streaming, setStreaming] = useState(false);
+  /** 已完成或中断的本次报告继续保留流式 DOM，避免切换至完整 Markdown 组件后从头重绘。 */
+  const [keepRawReport, setKeepRawReport] = useState(false);
   const streamAbortRef = useRef<(() => void) | null>(null);
   /** 新请求或取消请求都会失效旧回调，避免不同报告的增量交错。 */
   const streamRunGuardRef = useRef(createStreamRunGuard());
@@ -225,6 +228,7 @@ export default function Home() {
     // 预热 markdown 渲染器，避免完成后出现“正在展开卷轴”的加载态
     void import("streamdown");
     streamingRef.current = true;
+    setKeepRawReport(false);
     setReportText(null);
     setReportInterrupted(false);
     setReportTitle(module.label);
@@ -237,15 +241,9 @@ export default function Home() {
       },
       onRestart: () => {
         if (!streamRunGuardRef.current.isCurrent(run)) return;
-        pendingReportRef.current = "";
-        reportFlushSchedulerRef.current?.cancel();
-        if (rawReportRef.current) {
-          clearStreamRenderTargets(
-            rawReportRef.current.querySelector<HTMLDivElement>(".rm-stable"),
-            rawReportRef.current.querySelector<HTMLDivElement>(".rm-tail"),
-          );
-        }
-        renderedStableTextRef.current = "";
+        // 兼容旧服务端的 restart 事件：保留已显示内容，防止生成过程视觉回退到开头。
+        // 新服务端会将 P1–P12 的补全内容作为续写 delta 转发，因此此分支不再清屏。
+        pendingReportRef.current = retainContentOnRestart(pendingReportRef.current);
         lastChunkAtRef.current = Date.now();
         streamWaitingRef.current = false;
         setStreamWaiting(false);
@@ -254,6 +252,8 @@ export default function Home() {
       },
       onDone: data => {
         if (!streamRunGuardRef.current.isCurrent(run)) return;
+        pendingReportRef.current = data.report.resultMarkdown;
+        flushPendingReport();
         streamingRef.current = false;
         streamWaitingRef.current = false;
         setStreamWaiting(false);
@@ -263,6 +263,7 @@ export default function Home() {
         const report: MemoryReport = { ...data.report, createdAt: new Date(data.report.createdAt) };
         setReports(current => [report, ...current].slice(0, 12));
         setReportText(report.resultMarkdown);
+        setKeepRawReport(true);
         setReportTitle(report.title);
         if (data.previewChart && !selectedChart && active !== "prashna" && active !== "kp") setSelectedChart({ label: "本次工作盘", chart: data.previewChart as VedicChartData });
         if (active === "synastry" && data.synastry) setSynastryPreview(data.synastry as typeof synastryPreview);
@@ -273,6 +274,7 @@ export default function Home() {
       },
       onError: message => {
         if (!streamRunGuardRef.current.isCurrent(run)) return;
+        flushPendingReport();
         streamingRef.current = false;
         streamWaitingRef.current = false;
         setStreamWaiting(false);
@@ -280,6 +282,7 @@ export default function Home() {
         setStreamWaitingLong(false);
         setReportInterrupted(true);
         if (pendingReportRef.current) setReportText(pendingReportRef.current);
+        setKeepRawReport(Boolean(pendingReportRef.current));
         setStreaming(false);
         streamAbortRef.current = null;
         toast.error(message);
@@ -290,13 +293,16 @@ export default function Home() {
     streamRunGuardRef.current.invalidate();
     streamAbortRef.current?.();
     streamAbortRef.current = null;
+    streamWaitingRef.current = false;
+    setStreamWaiting(false);
+    streamWaitingLongRef.current = false;
+    setStreamWaitingLong(false);
+    reportFlushSchedulerRef.current?.cancel();
+    // 仍保持 streamingRef 为 true，先把尚未 flush 的尾部写入既有 DOM。
+    flushPendingReport();
     streamingRef.current = false;
-  streamWaitingRef.current = false;
-  setStreamWaiting(false);
-  streamWaitingLongRef.current = false;
-  setStreamWaitingLong(false);
-  reportFlushSchedulerRef.current?.cancel();
-  setReportText(pendingReportRef.current);
+    setReportText(pendingReportRef.current);
+    setKeepRawReport(Boolean(pendingReportRef.current));
     setReportInterrupted(true);
     setStreaming(false);
   };
@@ -313,6 +319,7 @@ export default function Home() {
   pendingReportRef.current = "";
     setStreaming(false);
     setReportInterrupted(false);
+    setKeepRawReport(false);
     setReportTitle(report.title);
     setReportText(report.resultMarkdown);
   };
@@ -406,10 +413,11 @@ export default function Home() {
     });
   }, [birth.date, birth.time, birth.latitude, birth.longitude]);
   const busy = calculateChart.isPending || streaming || ingest.isPending;
+  const reportRenderMode = getReportRenderMode(streaming, keepRawReport, Boolean(reportText));
   const isolatedStack = active === "prashna" || active === "kp";
   const visibleReports = isolatedStack ? reports.filter(report => report.stack === active) : reports.filter(report => report.stack !== "prashna" && report.stack !== "kp");
   const selectModule = (id: ModuleKey) => { setActive(id); setReportText(null); setQuestion(""); setExtraContext(""); };
-  const clearSession = () => { streamAbortRef.current?.(); streamAbortRef.current = null; pendingReportRef.current = ""; reportFlushSchedulerRef.current?.cancel(); setStreaming(false); setBirth({ ...initialBirth }); setPartner({ ...initialBirth }); setPrashnaLocation({ ...initialPrashnaLocation }); setSelectedChart(null); setReports([]); setReportText(null); setReportTitle(""); setQuestion(""); setEvents(""); setExtraContext(""); setFileName(""); setSynastryPreview(null); setModelConfig(defaultModelDraft()); setModelConfigOpen(false); setActive("natal"); toast.success("当前临时会话已清除"); };
+  const clearSession = () => { streamAbortRef.current?.(); streamAbortRef.current = null; pendingReportRef.current = ""; reportFlushSchedulerRef.current?.cancel(); setStreaming(false); setKeepRawReport(false); setBirth({ ...initialBirth }); setPartner({ ...initialBirth }); setPrashnaLocation({ ...initialPrashnaLocation }); setSelectedChart(null); setReports([]); setReportText(null); setReportTitle(""); setQuestion(""); setEvents(""); setExtraContext(""); setFileName(""); setSynastryPreview(null); setModelConfig(defaultModelDraft()); setModelConfigOpen(false); setActive("natal"); toast.success("当前临时会话已清除"); };
   const run = (stack: "natal" | "prashna" | "tajika" | "kp" | "synastry" | "rectification", moduleId: string, additions: Record<string, unknown> = {}) => {
     const needsChart = ["p1p12", "career", "love", "tajika", "synastry", "rectification"].includes(active);
     if (needsChart && !selectedChart && active !== "synastry") { toast.error("请先在本次会话中完成出生信息排盘"); return; }
@@ -494,7 +502,7 @@ export default function Home() {
         {active === "prashna" && <PrashnaPanel busy={busy} location={prashnaLocation} setLocation={setPrashnaLocation} resolvePlace={resolvePrashnaPlace} question={question} setQuestion={setQuestion} run={() => { const questionCheck = validatePrashnaQuestion(question); if (!questionCheck.valid) return toast.error(questionCheck.error); const locationPayload = prashnaPayload(); if (!locationPayload) return; const requestedModel = requestModelConfig(); if (!requestedModel) return; startReportStream({ stack: "prashna", module: "prashna", question: questionCheck.question, modelConfig: requestedModel, prashnaLocation: locationPayload }); }} />}
         {active === "tajika" && <TajikaPanel busy={busy} year={year} setYear={setYear} run={() => run("tajika", "tajika", { year: Number(year) })} />}
         {active === "kp" && <KpPanel busy={busy} question={question} setQuestion={setQuestion} extraContext={extraContext} setExtraContext={setExtraContext} table={kpTableQuery.data || []} kpNumber={kpNumber} setKpNumber={setKpNumber} run={() => run("kp", "kp", { kpNumber: Number(kpNumber) })} />}
-        {(reportText || streaming) && <article className="report-drawer"><div className="report-drawer__head"><div><div className="eyebrow">REPORT · THIS SESSION ONLY</div><h3>{reportTitle}</h3></div>{streaming && <button type="button" className="report-stop" onClick={stopGeneration} aria-label="停止生成当前报告"><Square size={11} /> 停止生成</button>}</div><div className="report-meta">{streaming ? <span className={streamWaiting ? "stream-waiting" : undefined} role="status" aria-live="polite"><ReportStreamMeta waitState={streamWaitingLong ? "long-waiting" : streamWaiting ? "waiting" : "writing"} /></span> : <><span className="report-seal" aria-hidden="true" /><span>{reportInterrupted ? "生成已停止 · " : "已生成 · "}{reportText ? reportText.length : 0} 字 · 仅保留在本次会话</span></>}</div>{streaming && <><div className="report-inkwell"><Loader2 className="animate-spin" size={15} /> <ReportStreamInkwell waitState={streamWaitingLong ? "long-waiting" : streamWaiting ? "waiting" : "writing"} /></div><div className="report-content report-content--raw" ref={reportScrollRef} role="region" aria-label="本次报告内容实时生成中"><div className="report-raw" ref={rawReportRef}><div className="rm-stable" /><div className="rm-tail" /></div></div></>}{!streaming && reportText && <p className="report-reading-note"><ReportReadingNote interrupted={reportInterrupted} /></p>}{!streaming && reportText && <div className="report-content" ref={reportScrollRef} tabIndex={0} role="region" aria-label={reportInterrupted ? "本次中断报告内容；可重新生成以获取完整报告" : "本次完整报告内容；报告已随页面连续展开，可使用 Page Down / End 键继续阅读"} onKeyDown={scrollPageWithKeyboard}><Suspense fallback={<div className="report-loading"><Loader2 className="animate-spin" size={16} /> 正在展开卷轴…</div>}><Streamdown isAnimating={false} controls={false}>{reportText}</Streamdown></Suspense></div>}</article>}
+        {reportRenderMode !== "none" && <article className="report-drawer"><div className="report-drawer__head"><div><div className="eyebrow">REPORT · THIS SESSION ONLY</div><h3>{reportTitle}</h3></div>{streaming && <button type="button" className="report-stop" onClick={stopGeneration} aria-label="停止生成当前报告"><Square size={11} /> 停止生成</button>}</div><div className="report-meta">{streaming ? <span className={streamWaiting ? "stream-waiting" : undefined} role="status" aria-live="polite"><ReportStreamMeta waitState={streamWaitingLong ? "long-waiting" : streamWaiting ? "waiting" : "writing"} /></span> : <><span className="report-seal" aria-hidden="true" /><span>{reportInterrupted ? "生成已停止 · " : "已生成 · "}{reportText ? reportText.length : 0} 字 · 仅保留在本次会话</span></>}</div>{streaming && <div className="report-inkwell"><Loader2 className="animate-spin" size={15} /> <ReportStreamInkwell waitState={streamWaitingLong ? "long-waiting" : streamWaiting ? "waiting" : "writing"} /></div>}{!streaming && reportText && <p className="report-reading-note"><ReportReadingNote interrupted={reportInterrupted} /></p>}{reportRenderMode === "raw" && <div key="raw-report" className="report-content report-content--raw" ref={reportScrollRef} role="region" aria-label={streaming ? "本次报告内容实时生成中" : "本次报告内容；已保留生成时的连续视图"}><div className="report-raw" ref={rawReportRef}><div className="rm-stable" /><div className="rm-tail" /></div></div>}{reportRenderMode === "markdown" && reportText && <div className="report-content" ref={reportScrollRef} tabIndex={0} role="region" aria-label={reportInterrupted ? "本次中断报告内容；可重新生成以获取完整报告" : "本次完整报告内容；报告已随页面连续展开，可使用 Page Down / End 键继续阅读"} onKeyDown={scrollPageWithKeyboard}><Suspense fallback={<div className="report-loading"><Loader2 className="animate-spin" size={16} /> 正在展开卷轴…</div>}><Streamdown isAnimating={false} controls={false}>{reportText}</Streamdown></Suspense></div>}</article>}
       </section><aside className="panel chart-side">{isolatedStack ? <IsolatedStackRail stack={active} reports={visibleReports} showAll={showAllReports} onToggle={() => setShowAllReports(current => !current)} onOpen={openStoredReport} /> : <><>{selectedChart ? <ChartRail chart={selectedChart.chart} /> : <div className="no-chart"><div><div className="empty-chart-sigil" aria-hidden="true"><span>观</span></div><strong className="serif text-[#292b2a] block mb-1">尚未建立本次工作盘</strong>填写出生信息即可临时排盘；页面刷新后不会保留。</div></div>}</><hr className="soft-rule" /><MemoryRail reports={visibleReports} showAll={showAllReports} onToggle={() => setShowAllReports(current => !current)} onOpen={openStoredReport} /></>}</aside>      </div>
     </main>
     {locationPickerOpen && pickerTarget && <AmapLocationPickerDialog jsApiKey={mapConfigQuery.data?.jsApiKey || null} initialAddress={pickerTarget === "prashna" ? prashnaLocation.place : pickerTarget === "partner" ? partner.place : birth.place} initialLatitude={pickerTarget === "prashna" ? prashnaLocation.latitude : pickerTarget === "partner" ? partner.latitude : birth.latitude} initialLongitude={pickerTarget === "prashna" ? prashnaLocation.longitude : pickerTarget === "partner" ? partner.longitude : birth.longitude} onClose={closeLocationPicker} onConfirm={location => applyMapLocation(pickerTarget, location)} />}

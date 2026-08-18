@@ -42,6 +42,32 @@ export function hasCompleteP1P12Report(content: string, finishReason?: string | 
   return Array.from({ length: 12 }, (_, index) => index + 1).every(index => new RegExp(`(?:^|\\n)#{2,6}\\s*P${index}\\s*[：:]`, "m").test(content));
 }
 
+function p1P12Sections(content: string) {
+  const headings = Array.from(content.matchAll(/^#{2,6}\s*P(\d+)\s*[：:].*$/gm));
+  const sections = new Map<number, string>();
+  headings.forEach((heading, index) => {
+    const house = Number(heading[1]);
+    const start = heading.index ?? 0;
+    const end = headings[index + 1]?.index ?? content.length;
+    if (house >= 1 && house <= 12) sections.set(house, content.slice(start, end).trim());
+  });
+  return sections;
+}
+
+/**
+ * 首稿不完整时，仅取重试稿中首稿缺失的宫位，以续写代替清屏后从 P1 重写。
+ * 即便上游忽略“续写”指令重发完整报告，客户端也只收到尚缺小节。
+ */
+export function buildP1P12Continuation(firstPass: string, retryPass: string) {
+  const existing = p1P12Sections(firstPass);
+  const retry = p1P12Sections(retryPass);
+  return Array.from({ length: 12 }, (_, index) => index + 1)
+    .filter(house => !existing.has(house))
+    .map(house => retry.get(house) || "")
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 export async function generateAnalysis(input: {
   stack: AnalysisStack;
   module: string;
@@ -98,7 +124,7 @@ export async function generateAnalysis(input: {
   }
 }
 
-/** 流式生成事件的类型定义：delta 增量 / restart 清屏重写 / done 收尾。 */
+/** 流式生成事件的类型定义：delta 增量 / restart（遗留兼容）/ done 收尾。 */
 export type AnalysisStreamEvent =
   | { type: "delta"; text: string }
   | { type: "restart" }
@@ -106,8 +132,8 @@ export type AnalysisStreamEvent =
 
 /**
  * 流式版本的 generateAnalysis：模型增量文本经 onEvent 实时转发。
- * P1–P12 首稿不完整时先发 restart（前端清空），再流式输出完整重写稿。
- * 重试也失败时按 fallbackReport 兜底并输出为普通 delta。
+ * P1–P12 首稿不完整时静默请求续写，并只转发缺失宫位，避免页面清空后从头重绘。
+ * 重试也失败时保留已输出文本并追加明确的未完成说明。
  */
 export async function generateAnalysisStream(
   input: Parameters<typeof generateAnalysis>[0],
@@ -129,12 +155,16 @@ export async function generateAnalysisStream(
 	不要在列表项前使用 ✓ ✗ ✅ ❌ ✔ 等 emoji 字符作为「已包含 / 未计算」的标识；改用纯文字前缀如「（启用）」「（未计算）」「（未启用）」，让前端以一致视觉样式渲染。`;
   const userMessage = `以下是经过计算或用户提供的数据。请仅据此完成当前模块，并保留不确定性：\n\n${JSON.stringify(data, null, 2)}`;
 
-  const collect = async (messages: { role: "system" | "user" | "assistant"; content: unknown }[], maxTokens?: number) => {
+  let emittedContent = "";
+  const collect = async (messages: { role: "system" | "user" | "assistant"; content: unknown }[], maxTokens?: number, emit = true) => {
     let content = "";
     for await (const chunk of streamCompatibleModel({ selection: input.modelConfig, maxTokens, messages, signal })) {
       if (signal?.aborted) throw new Error("报告流已取消");
       content += chunk;
-      onEvent({ type: "delta", text: chunk });
+      if (emit) {
+        emittedContent += chunk;
+        onEvent({ type: "delta", text: chunk });
+      }
     }
     return content;
   };
@@ -147,22 +177,34 @@ export async function generateAnalysisStream(
     if (firstPass && input.module !== "p1p12") return firstPass;
     if (firstPass && hasCompleteP1P12Report(firstPass)) return firstPass;
 
-    console.warn("[Vedic] P1–P12 response was incomplete; restarting stream with compact full-report instructions");
-    onEvent({ type: "restart" });
+    console.warn("[Vedic] P1–P12 response was incomplete; requesting only missing sections without clearing the stream");
     const retryContent = await collect([
-      { role: "system", content: `${system}\n上一稿未能完整覆盖十二宫。现在请从头重写一份紧凑完整的 P1–P12 报告：必须包含从“### P1：”至“### P12：”的十二个标题，每宫最多 5 个简短条目；宁可压缩文字，也不能跳宫、停在半句或省略 P9–P12。` },
-      { role: "user", content: `请仅使用以下数据重写完整 P1–P12 报告：\n\n${JSON.stringify(data, null, 2)}` },
-    ], 6000);
-    if (retryContent && hasCompleteP1P12Report(retryContent)) return retryContent;
+      { role: "system", content: `${system}\n上一稿已经显示给用户。只续写其中缺失的 P 宫标题和内容，绝不可重复“数据与边界”、已存在的标题或 P1–P8 等既有段落。每宫最多 5 个简短条目。` },
+      { role: "user", content: `原始数据：\n\n${JSON.stringify(data, null, 2)}` },
+      { role: "assistant", content: firstPass },
+      { role: "user", content: "请从第一个尚未输出的 P 宫继续，直到 P12。" },
+    ], 6000, false);
+    const continuation = buildP1P12Continuation(firstPass, retryContent);
+    if (continuation) {
+      const appended = `\n\n${continuation}`;
+      emittedContent += appended;
+      onEvent({ type: "delta", text: appended });
+      const combined = `${firstPass}${appended}`;
+      if (hasCompleteP1P12Report(combined)) return combined;
+    }
 
-    onEvent({ type: "restart" });
-    const fallback = fallbackReport(input.module, input.chart);
-    onEvent({ type: "delta", text: fallback });
-    return fallback;
+    const notice = "\n\n### 生成边界\n本次 P1–P12 续写未能补齐所有宫位；已保留已生成内容，可重新生成以取得完整版本。";
+    emittedContent += notice;
+    onEvent({ type: "delta", text: notice });
+    return `${firstPass}${notice}`;
   } catch (error) {
     if (signal?.aborted) throw error;
     console.error("[Vedic] AI streaming analysis failed", error);
-    onEvent({ type: "restart" });
+    if (emittedContent) {
+      const notice = "\n\n### 生成中断\n已保留已生成内容；可重新生成以取得完整版本。";
+      onEvent({ type: "delta", text: notice });
+      return `${emittedContent}${notice}`;
+    }
     const fallback = fallbackReport(input.module, input.chart);
     onEvent({ type: "delta", text: fallback });
     return fallback;

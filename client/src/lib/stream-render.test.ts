@@ -55,6 +55,21 @@ describe("流式稳定区增量渲染", () => {
     expect(view.html).toContain("第 120 段稳定内容");
   });
 
+  it("P1–P12 续写时保留首稿稳定区，只追加此前缺失的小节", () => {
+    const view = createTarget();
+    const firstPass = "### P1：第一宫\n首稿内容\n\n### P8：第八宫\n首稿内容\n";
+    const completed = `${firstPass}\n### P9：第九宫\n续写内容\n\n### P12：第十二宫\n续写内容\n`;
+    const stableAfterFirstPass = appendStableMarkdown(view.target, "", firstPass);
+    const firstHtml = view.html;
+    appendStableMarkdown(view.target, stableAfterFirstPass, completed);
+
+    expect(view.cleared).toBe(0);
+    expect(view.replacements).toBe(0);
+    expect(view.html).toContain(firstHtml);
+    expect(view.html).toContain("P9：第九宫");
+    expect(view.html).toContain("P12：第十二宫");
+  });
+
   it("重启时会同时清空稳定区与活动尾部", () => {
     const stable = createTarget();
     const tail = createTarget();

@@ -4,7 +4,7 @@ import { buildKp249Table, lookupKpSubLord } from "../shared/kp";
 import { buildRectificationCandidates, summarizeRectificationCandidates } from "../shared/rectification";
 import { calculateSynastry } from "../shared/synastry";
 import { selectSavedChart } from "../shared/chart-selection";
-import { hasCompleteP1P12Report, moduleTitle } from "./vedic";
+import { buildP1P12Continuation, hasCompleteP1P12Report, moduleTitle } from "./vedic";
 
 const testBirth = { name: "Test", date: "1990-08-15", time: "10:30", place: "Shanghai", latitude: 31.2304, longitude: 121.4737, timezoneOffset: 480, timeAccuracy: "精确到分钟" };
 
@@ -61,6 +61,16 @@ describe("vedic chart engine", () => {
     expect(hasCompleteP1P12Report(complete, "stop")).toBe(true);
     expect(hasCompleteP1P12Report(truncated, "stop")).toBe(false);
     expect(hasCompleteP1P12Report(complete, "length")).toBe(false);
+  });
+
+  it("仅追加重试稿中首稿缺失的 P1–P12 小节，不从 P1 重写", () => {
+    const firstPass = Array.from({ length: 8 }, (_, index) => `### P${index + 1}：第${index + 1}宫\n- 首稿内容`).join("\n\n");
+    const retryPass = Array.from({ length: 12 }, (_, index) => `### P${index + 1}：第${index + 1}宫\n- 重试内容`).join("\n\n");
+    const continuation = buildP1P12Continuation(firstPass, retryPass);
+
+    expect(continuation).toContain("### P9：第9宫");
+    expect(continuation).toContain("### P12：第12宫");
+    expect(continuation).not.toContain("### P1：第1宫");
   });
 
   it("builds a complete ordered KP 1–249 sub-lord table", () => {
