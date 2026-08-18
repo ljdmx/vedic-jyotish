@@ -31,7 +31,31 @@ body { margin: 0; min-width: 320px; background: #e7dfd0; color: #292b2a; font-fa
 .model-config-trigger:active { transform:scale(.94); }
 .model-config-trigger:focus-visible { outline:1px solid #65796b; outline-offset:3px; }
 .model-config-trigger svg { stroke-width:1.55; }
-.output-mode-anchor{position:relative}.output-mode-trigger{position:relative;width:28px;height:28px;display:grid;place-items:center;padding:0;border:0;background:transparent;color:#54635a;transition:color .16s ease,transform .16s ease}.output-mode-trigger:hover,.output-mode-trigger.is-open{color:#292b2a}.output-mode-trigger:active{transform:scale(.94)}.output-mode-trigger:focus-visible{outline:1px solid #65796b;outline-offset:3px}.output-mode-trigger svg{stroke-width:1.55}.output-mode-trigger__dot{position:absolute;right:2px;bottom:3px;width:5px;height:5px;border:1px solid #eee8dc;border-radius:50%;background:#65796b}.output-mode-card{position:absolute;right:0;top:calc(100% + .75rem);z-index:50;width:min(318px,calc(100vw - 2rem));padding:.38rem;border:1px solid rgba(41,43,42,.32);background:rgba(244,239,229,.98);box-shadow:0 16px 36px rgba(41,43,42,.14)}.output-mode-card::before{content:"";position:absolute;inset:6px;border:1px solid rgba(101,121,107,.14);pointer-events:none}.output-mode-card button{position:relative;z-index:1;display:grid;grid-template-columns:18px minmax(0,1fr) 16px;align-items:center;gap:.65rem;width:100%;border:0;background:transparent;padding:.68rem .62rem;color:#60625d;text-align:left}.output-mode-card button:hover,.output-mode-card button.is-selected{background:rgba(101,121,107,.10);color:#292b2a}.output-mode-card strong{display:block;font:600 .78rem "Noto Serif SC",serif}.output-mode-card small{display:block;margin-top:.18rem;color:#77756d;font-size:.61rem;line-height:1.5}.output-mode-card button>svg:last-child{color:#65796b}
+.output-mode-anchor { position: relative; }
+.output-mode-trigger { position: relative; display: grid; width: 30px; height: 30px; padding: 0; place-items: center; border: 0; background: transparent; color: #54635a; transition: color .16s ease, transform .16s ease; }
+.output-mode-trigger:hover, .output-mode-trigger.is-open { color: #292b2a; }
+.output-mode-trigger:active { transform: scale(.94); }
+.output-mode-trigger:focus-visible { outline: 1px solid #65796b; outline-offset: 3px; }
+.output-mode-trigger svg { stroke-width: 1.5; }
+.output-mode-trigger__dot { position: absolute; right: 2px; bottom: 3px; width: 5px; height: 5px; border: 1px solid #eee8dc; border-radius: 50%; background: #65796b; }
+.output-mode-card { position: absolute; top: calc(100% + .8rem); right: -.15rem; z-index: 50; width: min(286px, calc(100vw - 2rem)); padding: .35rem 0; border: 1px solid rgba(57, 58, 54, .28); background: #f3eee3; box-shadow: 0 14px 28px rgba(43, 42, 35, .12), 0 2px 5px rgba(43, 42, 35, .05); }
+.output-mode-card::before { content: ""; position: absolute; top: -5px; right: 11px; width: 9px; height: 9px; border-top: 1px solid rgba(57, 58, 54, .28); border-left: 1px solid rgba(57, 58, 54, .28); background: #f3eee3; transform: rotate(45deg); pointer-events: none; }
+.output-mode-card__label { margin: 0; padding: .52rem 1rem .4rem; color: #78746b; font: .59rem/1.25 "DM Mono", monospace; letter-spacing: .12em; text-transform: uppercase; }
+.output-mode-card button { position: relative; display: grid; grid-template-columns: 20px minmax(0, 1fr) 16px; align-items: center; width: 100%; min-height: 66px; padding: .72rem 1rem .72rem .9rem; gap: .78rem; border: 0; border-left: 2px solid transparent; background: transparent; color: #6b6a63; text-align: left; transition: background .16s ease, color .16s ease, border-color .16s ease; }
+.output-mode-card button + button { border-top: 1px solid rgba(57, 58, 54, .12); }
+.output-mode-card button:hover { background: rgba(86, 97, 90, .055); color: #292b2a; }
+.output-mode-card button.is-selected { border-left-color: #a45f49; background: linear-gradient(90deg, rgba(164, 95, 73, .11), rgba(164, 95, 73, .02) 70%, transparent); color: #292b2a; }
+.output-mode-card button:focus-visible { z-index: 1; outline: 1px solid #65796b; outline-offset: -3px; }
+.output-mode-card strong { display: block; font: 600 .91rem/1.2 "Noto Serif SC", serif; letter-spacing: .02em; }
+.output-mode-card small { display: block; max-width: 205px; margin-top: .3rem; color: #858178; font-size: .68rem; line-height: 1.55; }
+.output-mode-card button > svg:first-child { stroke-width: 1.45; }
+.output-mode-card button > svg:last-child { color: #a45f49; stroke-width: 1.55; }
+@media (max-width: 680px) {
+  .output-mode-card { position: fixed; top: max(4.45rem, calc(env(safe-area-inset-top, 0px) + 3.8rem)); right: max(.75rem, env(safe-area-inset-right, 0px)); left: max(.75rem, env(safe-area-inset-left, 0px)); width: auto; }
+  .output-mode-card::before { display: none; }
+  .output-mode-card button { min-height: 70px; padding-left: 1rem; }
+  .output-mode-card small { max-width: none; }
+}
 .model-config-card { position:absolute; right:0; top:calc(100% + .75rem); width:min(392px,calc(100vw - 2rem)); max-height:min(720px,calc(100vh - 6rem)); overflow-y:auto; z-index:50; padding:1.05rem; border:1px solid rgba(41,43,42,.32); background:rgba(244,239,229,.98); box-shadow:0 16px 36px rgba(41,43,42,.14); }
 .model-config-card::before { content:""; position:absolute; inset:7px; pointer-events:none; border:1px solid rgba(101,121,107,.15); }
 .model-config-card > * { position:relative; z-index:1; }
