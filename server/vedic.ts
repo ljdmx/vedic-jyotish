@@ -71,6 +71,9 @@ function finaliseReport(content: string, input: Parameters<typeof generateAnalys
 
 const EVIDENCE_PROTOCOL = "每一条关键解读都要在同段用“依据：”明确引用输入中实际存在的行星位置、H 宫位、月宿或 Graha Drishti；不可用的数据直接写“未计算”。出生时间精度或时制不充分时，禁止把宫位或时限解释成确定事实。";
 
+/** 所有模块共享的表达顺序：先让用户知道该怎么理解和行动，再按需查看术语与边界。 */
+export const REPORT_CLARITY_PROTOCOL = "所有模块都先给白话结论：开头 2–3 句直接回答“目前更适合怎么做、最该留意什么、下一步是什么”。随后用“为什么这样说”写不超过 3 条通俗理由；每条需要时用“依据：”附上实际可见的宫位、行星或 Graha Drishti。技术术语必须紧跟中文解释，不得堆叠缩写。最后再写限制、反证与未计算项，且不得用冗长边界说明替代结论。";
+
 function fallbackReport(module: string, chart?: VedicChart) {
   const marker = chart ? `上升位于 **${chart.lagna.signZh}座**，月亮位于 **${chart.summary.moonSign}座**。` : "已建立本次独立分析会话。";
   return `## ${moduleTitle(module)}\n\n${marker}\n\nAI 解读服务当前未返回文本。你的输入与计算结果已保留在本次会话中；可稍后重新运行以生成完整的结构化解读。\n\n> 本应用提供的是占星信息整理与反思材料，不构成医疗、法律、投资或其他专业意见。`;
@@ -130,11 +133,11 @@ export async function generateAnalysis(input: {
   const system = `你是一名使用中文撰写、证据透明的吠陀占星研究助理。当前模块：${moduleTitle(input.module)}。${STACK_BOUNDARIES[input.stack]}
 模块协议：${MODULE_PROTOCOLS[input.module] || "先说人话，再写可复核的盘面证据、限制/反证与可验证问题。"}
 将盘面数据视为象征性解释框架，不要把推断包装为确定事实、诊断、治疗或绝对预测。不得编造缺失的天体、分盘、Dasha、KP cusp/sub-lord、出生事件、规则编号或数据源。
-	所有报告都必须有“数据与边界”一节，明确引用输入 audit.calculationScope 与 audit.excludedFromThisChart；再使用“盘面观察”“可能呈现”“限制/反证”“现实验证问题”四种标签。语言比例约为70%通俗解释、20%可核对证据、10%技术注释，术语第一次出现要翻译。
-	不要在列表项前使用 ✓ ✗ ✅ ❌ ✔ 等 emoji 字符作为「已包含 / 未计算」的标识；改用纯文字前缀如「（启用）」「（未计算）」「（未启用）」，让前端以一致视觉样式渲染。`;
-  const evidenceSystem = `${system}\n${EVIDENCE_PROTOCOL}`;
-  try {
-    const result = await invokeCompatibleModel({
+		所有报告都必须有“数据与边界”一节，明确引用输入 audit.calculationScope 与 audit.excludedFromThisChart；再使用“盘面观察”“可能呈现”“限制/反证”“现实验证问题”四种标签。语言比例约为70%通俗解释、20%可核对证据、10%技术注释，术语第一次出现要翻译。
+		不要在列表项前使用 ✓ ✗ ✅ ❌ ✔ 等 emoji 字符作为「已包含 / 未计算」的标识；改用纯文字前缀如「（启用）」「（未计算）」「（未启用）」，让前端以一致视觉样式渲染。`;
+	const evidenceSystem = `${system}\n${REPORT_CLARITY_PROTOCOL}\n${EVIDENCE_PROTOCOL}`;
+	try {
+	  const result = await invokeCompatibleModel({
       selection: input.modelConfig,
       maxTokens: input.module === "p1p12" ? 6000 : undefined,
       messages: [
@@ -193,10 +196,10 @@ export async function generateAnalysisStream(
   const system = `你是一名使用中文撰写、证据透明的吠陀占星研究助理。当前模块：${moduleTitle(input.module)}。${STACK_BOUNDARIES[input.stack]}
 模块协议：${MODULE_PROTOCOLS[input.module] || "先说人话，再写可复核的盘面证据、限制/反证与可验证问题。"}
 将盘面数据视为象征性解释框架，不要把推断包装为确定事实、诊断、治疗或绝对预测。不得编造缺失的天体、分盘、Dasha、KP cusp/sub-lord、出生事件、规则编号或数据源。
-	所有报告都必须有“数据与边界”一节，明确引用输入 audit.calculationScope 与 audit.excludedFromThisChart；再使用“盘面观察”“可能呈现”“限制/反证”“现实验证问题”四种标签。语言比例约为70%通俗解释、20%可核对证据、10%技术注释，术语第一次出现要翻译。
-	不要在列表项前使用 ✓ ✗ ✅ ❌ ✔ 等 emoji 字符作为「已包含 / 未计算」的标识；改用纯文字前缀如「（启用）」「（未计算）」「（未启用）」，让前端以一致视觉样式渲染。`;
-  const evidenceSystem = `${system}\n${EVIDENCE_PROTOCOL}`;
-  const userMessage = `以下是经过计算或用户提供的数据。请仅据此完成当前模块，并保留不确定性：\n\n${JSON.stringify(data, null, 2)}`;
+		所有报告都必须有“数据与边界”一节，明确引用输入 audit.calculationScope 与 audit.excludedFromThisChart；再使用“盘面观察”“可能呈现”“限制/反证”“现实验证问题”四种标签。语言比例约为70%通俗解释、20%可核对证据、10%技术注释，术语第一次出现要翻译。
+		不要在列表项前使用 ✓ ✗ ✅ ❌ ✔ 等 emoji 字符作为「已包含 / 未计算」的标识；改用纯文字前缀如「（启用）」「（未计算）」「（未启用）」，让前端以一致视觉样式渲染。`;
+	const evidenceSystem = `${system}\n${REPORT_CLARITY_PROTOCOL}\n${EVIDENCE_PROTOCOL}`;
+	const userMessage = `以下是经过计算或用户提供的数据。请仅据此完成当前模块，并保留不确定性：\n\n${JSON.stringify(data, null, 2)}`;
 
   const reportPreludeSegments = buildReportPreludeSegments(input).filter(Boolean);
   let emittedContent = "";

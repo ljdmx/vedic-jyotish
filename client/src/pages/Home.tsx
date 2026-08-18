@@ -7,6 +7,7 @@ import { appendStableMarkdown, clearStreamRenderTargets } from "@/lib/stream-ren
 import { shouldScheduleLocationSearch } from "@/lib/location-search";
 import { createFrameThrottler } from "@/lib/frame-throttler";
 import { getReportRenderMode, retainContentOnRestart } from "@/lib/report-stream-lifecycle";
+import { AI_OUTPUT_MODE_COPY, DEFAULT_AI_OUTPUT_MODE, aiOutputModeLabel, type AiOutputMode } from "@/lib/output-mode";
 import { ReportReadingNote, ReportStreamInkwell, ReportStreamMeta } from "@/components/ReportStreamState";
 import type { VedicChart as VedicChartData } from "@shared/vedic-engine";
 import type { KpSubLordRow } from "@shared/kp";
@@ -15,7 +16,7 @@ import type { SynastryDrishti, SynastryOverlay } from "@shared/synastry";
 import { DEFAULT_MODEL_CONFIG, MODEL_PROVIDERS, type ModelProviderId, type TemporaryModelConfig } from "@shared/model-config";
 import { buildPrashnaLocation } from "@shared/prashna-location";
 import { validatePrashnaQuestion } from "@shared/prashna-question";
-import { ArrowRight, BookOpen, Bot, BriefcaseBusiness, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, Compass, FileSearch, Grid2X2, Heart, Landmark, Layers3, Loader2, MapPin, Orbit, RotateCcw, ScrollText, ShieldCheck, Sparkles, Square, SunMedium, Trash2, UploadCloud, UsersRound, X } from "lucide-react";
+import { ArrowRight, BookOpen, Bot, BriefcaseBusiness, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, Compass, FileSearch, Grid2X2, Heart, Landmark, Layers3, Loader2, MapPin, Orbit, Radio, RotateCcw, ScrollText, ShieldCheck, Sparkles, Square, SunMedium, Trash2, UploadCloud, UsersRound, X } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type WheelEvent as ReactWheelEvent } from "react";
 import { toast } from "sonner";
 
@@ -103,6 +104,8 @@ export default function Home() {
   const [fileName, setFileName] = useState("");
   const [modelConfig, setModelConfig] = useState<Required<TemporaryModelConfig>>(defaultModelDraft);
   const [modelConfigOpen, setModelConfigOpen] = useState(false);
+  const [outputMode, setOutputMode] = useState<AiOutputMode>(DEFAULT_AI_OUTPUT_MODE);
+  const [outputModeOpen, setOutputModeOpen] = useState(false);
   const [showAllReports, setShowAllReports] = useState(false);
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<"birth" | "partner" | "prashna" | null>(null);
@@ -129,6 +132,7 @@ export default function Home() {
     onSuccess: chart => { setSelectedChart({ label: birth.name.trim() || `${birth.place} · 本次工作盘`, chart: chart as VedicChartData }); setReportText(null); toast.success("已建立本次临时工作盘；刷新页面后将自动清除"); },
     onError: error => toast.error(error.message),
   });
+  const reportRun = trpc.report.run.useMutation();
   // ---- AI 报告流式输出（SSE /api/stream/report） ----
   const [streaming, setStreaming] = useState(false);
   /** 已完成或中断的本次报告继续保留流式 DOM，避免切换至完整 Markdown 组件后从头重绘。 */
@@ -299,6 +303,36 @@ export default function Home() {
       },
     });
   };
+  const startReportOnce = (payload: Record<string, unknown>) => {
+    const run = streamRunGuardRef.current.begin();
+    streamAbortRef.current?.();
+    streamAbortRef.current = null;
+    pendingReportRef.current = "";
+    reportFlushSchedulerRef.current?.cancel();
+    streamingRef.current = false;
+    setStreaming(false);
+    setKeepRawReport(false);
+    setReportText(null);
+    setReportInterrupted(false);
+    setReportTitle(module.label);
+    reportRun.mutate(payload as never, {
+      onSuccess: data => {
+        if (!streamRunGuardRef.current.isCurrent(run)) return;
+        const report: MemoryReport = { ...data.report, createdAt: new Date(data.report.createdAt) };
+        pendingReportRef.current = report.resultMarkdown;
+        setReports(current => [report, ...current].slice(0, 12));
+        setReportText(report.resultMarkdown);
+        setReportTitle(report.title);
+        if (data.previewChart && !selectedChart && active !== "prashna" && active !== "kp") setSelectedChart({ label: "本次工作盘", chart: data.previewChart as VedicChartData });
+        if (active === "synastry" && data.synastry) setSynastryPreview(data.synastry as typeof synastryPreview);
+        toast.success("完整报告已生成；仅保留在当前页面会话中");
+      },
+      onError: error => {
+        if (!streamRunGuardRef.current.isCurrent(run)) return;
+        toast.error(error.message);
+      },
+    });
+  };
   const stopGeneration = () => {
     streamRunGuardRef.current.invalidate();
     streamAbortRef.current?.();
@@ -422,17 +456,19 @@ export default function Home() {
       onSuccess: result => setBirth(current => current.timezoneOffset === String(result.timezoneOffset) ? current : { ...current, timezoneOffset: String(result.timezoneOffset) }),
     });
   }, [birth.date, birth.time, birth.latitude, birth.longitude]);
-  const busy = calculateChart.isPending || streaming || ingest.isPending;
+  const busy = calculateChart.isPending || streaming || reportRun.isPending || ingest.isPending;
   const reportRenderMode = getReportRenderMode(streaming, keepRawReport, Boolean(reportText));
   const isolatedStack = active === "prashna" || active === "kp";
   const visibleReports = isolatedStack ? reports.filter(report => report.stack === active) : reports.filter(report => report.stack !== "prashna" && report.stack !== "kp");
   const selectModule = (id: ModuleKey) => { setActive(id); setReportText(null); setQuestion(""); setExtraContext(""); };
-  const clearSession = () => { streamAbortRef.current?.(); streamAbortRef.current = null; pendingReportRef.current = ""; reportFlushSchedulerRef.current?.cancel(); setStreaming(false); setKeepRawReport(false); setBirth({ ...initialBirth }); setPartner({ ...initialBirth }); setPrashnaLocation({ ...initialPrashnaLocation }); setSelectedChart(null); setReports([]); setReportText(null); setReportTitle(""); setQuestion(""); setEvents(""); setExtraContext(""); setFileName(""); setSynastryPreview(null); setModelConfig(defaultModelDraft()); setModelConfigOpen(false); setActive("natal"); toast.success("当前临时会话已清除"); };
+  const clearSession = () => { streamRunGuardRef.current.invalidate(); streamAbortRef.current?.(); streamAbortRef.current = null; reportRun.reset(); pendingReportRef.current = ""; reportFlushSchedulerRef.current?.cancel(); setStreaming(false); setKeepRawReport(false); setBirth({ ...initialBirth }); setPartner({ ...initialBirth }); setPrashnaLocation({ ...initialPrashnaLocation }); setSelectedChart(null); setReports([]); setReportText(null); setReportTitle(""); setQuestion(""); setEvents(""); setExtraContext(""); setFileName(""); setSynastryPreview(null); setModelConfig(defaultModelDraft()); setModelConfigOpen(false); setOutputMode(DEFAULT_AI_OUTPUT_MODE); setOutputModeOpen(false); setActive("natal"); toast.success("当前临时会话已清除"); };
   const run = (stack: "natal" | "prashna" | "tajika" | "kp" | "synastry" | "rectification", moduleId: string, additions: Record<string, unknown> = {}) => {
     const needsChart = ["p1p12", "career", "love", "tajika", "synastry", "rectification"].includes(active);
     if (needsChart && !selectedChart && active !== "synastry") { toast.error("请先在本次会话中完成出生信息排盘"); return; }
     const requestedModel = requestModelConfig(); if (!requestedModel) return;
-    startReportStream({ stack, module: moduleId, chartInput: stack !== "prashna" && stack !== "kp" ? selectedChart?.chart.birth : undefined, question: question || undefined, events: events || undefined, extraContext: extraContext || undefined, modelConfig: requestedModel, ...additions });
+    const payload = { stack, module: moduleId, chartInput: stack !== "prashna" && stack !== "kp" ? selectedChart?.chart.birth : undefined, question: question || undefined, events: events || undefined, extraContext: extraContext || undefined, modelConfig: requestedModel, ...additions };
+    if (outputMode === "stream") startReportStream(payload);
+    else startReportOnce(payload);
   };
   const calculateCurrentBirth = () => { if (!validBirth()) return toast.error("请填写日期、时间、地点、经纬度与时区"); calculateChart.mutate(birthPayload()); };
   const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
@@ -495,7 +531,7 @@ export default function Home() {
         <button className="brand" onClick={() => { window.history.replaceState({}, "", "/"); setStarted(false); }} aria-label="返回观星录官网首页"><span className="brand-seal">观</span><span className="brand-copy"><strong>观星录</strong><small>VEDIC · JYOTISH</small></span></button>
       </div>
       <nav className="top-nav" aria-label="功能导航；可用方向键、Page Up、Page Down、Home 和 End 横向滚动" tabIndex={0} onKeyDown={scrollNavigationWithKeyboard} onWheel={scrollNavigationWithWheel}>{NAV_GROUPS.map(group => <div className="top-nav-group" key={group.label}><span className="top-nav-group__label">{group.label}</span>{group.ids.map(id => { const item = MODULES.find(candidate => candidate.id === id)!; return <button data-module-id={item.id} key={item.id} className={active === item.id ? "active" : ""} onClick={() => selectModule(item.id)}><span className="top-nav__code">{item.code}</span><item.icon /><span>{item.label}</span></button>; })}</div>)}</nav>
-      <div className="topbar-actions"><div className="model-config-anchor"><button type="button" className={`model-config-trigger${modelConfigOpen ? " is-open" : ""}`} aria-label="配置本次会话的 AI 模型" aria-expanded={modelConfigOpen} onClick={() => setModelConfigOpen(current => !current)}><Bot size={16} /></button>{modelConfigOpen && <ModelConfigCard value={modelConfig} onChange={setModelConfig} onClose={() => setModelConfigOpen(false)} />}</div><button onClick={clearSession} className="topbar-clear" aria-label="清除本次会话"><Trash2 size={14} /><span>清除</span></button></div>
+      <div className="topbar-actions"><div className="output-mode-anchor"><button type="button" className={`output-mode-trigger${outputModeOpen ? " is-open" : ""}`} aria-label={`AI 输出模式：${aiOutputModeLabel(outputMode)}`} aria-expanded={outputModeOpen} onClick={() => { setOutputModeOpen(current => !current); setModelConfigOpen(false); }}>{outputMode === "stream" ? <Radio size={16} /> : <ScrollText size={16} />}<span className="output-mode-trigger__dot" aria-hidden="true" /></button>{outputModeOpen && <div className="output-mode-card" role="menu" aria-label="选择 AI 输出模式">{(["stream", "single"] as AiOutputMode[]).map(mode => <button key={mode} type="button" className={outputMode === mode ? "is-selected" : ""} aria-pressed={outputMode === mode} onClick={() => { setOutputMode(mode); setOutputModeOpen(false); toast.success(`已切换为${aiOutputModeLabel(mode)}`); }}>{mode === "stream" ? <Radio size={15} /> : <ScrollText size={15} />}<span><strong>{AI_OUTPUT_MODE_COPY[mode].label}</strong><small>{AI_OUTPUT_MODE_COPY[mode].hint}</small></span>{outputMode === mode && <Check size={14} aria-hidden="true" />}</button>)}</div>}</div><div className="model-config-anchor"><button type="button" className={`model-config-trigger${modelConfigOpen ? " is-open" : ""}`} aria-label="配置本次会话的 AI 模型" aria-expanded={modelConfigOpen} onClick={() => { setModelConfigOpen(current => !current); setOutputModeOpen(false); }}><Bot size={16} /></button>{modelConfigOpen && <ModelConfigCard value={modelConfig} onChange={setModelConfig} onClose={() => setModelConfigOpen(false)} />}</div><button onClick={clearSession} className="topbar-clear" aria-label="清除本次会话"><Trash2 size={14} /><span>清除</span></button></div>
     </header>
     <main className="app-main">
       <header className="workspace-top"><div><div className="eyebrow">{module.code} · {isolatedStack ? "ISOLATED STACK" : "TEMPORARY WORKFLOW"}</div><h1>{module.label}</h1><p>{module.description}</p></div><div className="status"><ShieldCheck /> 无账号 · 不存储 · 刷新即清除</div></header>
