@@ -32,6 +32,29 @@ export function moduleTitle(module: string) {
   return titles[module] || "吠陀占星分析";
 }
 
+/**
+ * 将影响解读可复核性的计算依据固定写入报告，而不依赖模型自行复述。
+ * 这提升的是结论的可追溯性与输入质量透明度，不宣称能提高未来事件预测准确率。
+ */
+export function buildReportEvidenceLedger(input: Pick<Parameters<typeof generateAnalysis>[0], "stack" | "module" | "chart">) {
+  const chart = input.chart;
+  if (!chart) {
+    return `## 计算依据与置信边界（系统记录）\n\n- **分析栈**：${input.stack}；模块：${moduleTitle(input.module)}。\n- **可用材料**：仅使用本次明确提交的独立资料，不补写缺失盘面字段。\n- **结论边界**：缺少可计算盘面或完整规则账本时，仅说明资料状态与下一步，不给出确定性预测。`;
+  }
+  const audit = chart.audit;
+  const timeIsVerified = /精确到分钟|系统捕获到秒/.test(audit.timePrecision) && audit.timeBasis !== "unknown";
+  const timeBoundary = timeIsVerified
+    ? "当前时间精度可用于本应用 D1 工作盘；仍不等同于已完成分盘或时限判断审计。"
+    : "出生时间精度或时制尚未完全确认；涉及 Lagna、宫位和时间性判断只能作为当前工作盘假设，需先核对报时来源与时区。";
+  return `## 计算依据与置信边界（系统记录）\n\n- **输入时空**：${chart.birth.date} ${chart.birth.time} · ${chart.birth.place} · ${chart.birth.latitude.toFixed(4)}, ${chart.birth.longitude.toFixed(4)} · UTC${audit.timezoneOffsetMinutes >= 0 ? "+" : ""}${(audit.timezoneOffsetMinutes / 60).toFixed(2)}。\n- **时间质量**：${audit.timePrecision}；来源：${audit.timeSource}；时制：${audit.timeBasis}。${timeBoundary}\n- **计算口径**：${chart.ayanamsa.name}；${audit.calculationScope.join("、")}。\n- **未纳入计算**：${audit.excludedFromThisChart.join("、")}。\n- **阅读规则**：后文只能把可见盘面位置、宫位、月宿或 Graha Drishti 作为依据；资料未提供或未计算的项目必须标注为“未计算”，不得补全为确定结论。`;
+}
+
+function finaliseReport(content: string, input: Parameters<typeof generateAnalysis>[0]) {
+  return `${buildReportEvidenceLedger(input)}\n\n${content}`;
+}
+
+const EVIDENCE_PROTOCOL = "每一条关键解读都要在同段用“依据：”明确引用输入中实际存在的行星位置、H 宫位、月宿或 Graha Drishti；不可用的数据直接写“未计算”。出生时间精度或时制不充分时，禁止把宫位或时限解释成确定事实。";
+
 function fallbackReport(module: string, chart?: VedicChart) {
   const marker = chart ? `上升位于 **${chart.lagna.signZh}座**，月亮位于 **${chart.summary.moonSign}座**。` : "已建立本次独立分析会话。";
   return `## ${moduleTitle(module)}\n\n${marker}\n\nAI 解读服务当前未返回文本。你的输入与计算结果已保留在本次会话中；可稍后重新运行以生成完整的结构化解读。\n\n> 本应用提供的是占星信息整理与反思材料，不构成医疗、法律、投资或其他专业意见。`;
@@ -86,41 +109,43 @@ export async function generateAnalysis(input: {
     events: input.events || undefined,
     question: input.question || undefined,
     extraContext: input.extraContext || undefined,
+    systemEvidenceLedger: buildReportEvidenceLedger(input),
   };
   const system = `你是一名使用中文撰写、证据透明的吠陀占星研究助理。当前模块：${moduleTitle(input.module)}。${STACK_BOUNDARIES[input.stack]}
 模块协议：${MODULE_PROTOCOLS[input.module] || "先说人话，再写可复核的盘面证据、限制/反证与可验证问题。"}
 将盘面数据视为象征性解释框架，不要把推断包装为确定事实、诊断、治疗或绝对预测。不得编造缺失的天体、分盘、Dasha、KP cusp/sub-lord、出生事件、规则编号或数据源。
 	所有报告都必须有“数据与边界”一节，明确引用输入 audit.calculationScope 与 audit.excludedFromThisChart；再使用“盘面观察”“可能呈现”“限制/反证”“现实验证问题”四种标签。语言比例约为70%通俗解释、20%可核对证据、10%技术注释，术语第一次出现要翻译。
 	不要在列表项前使用 ✓ ✗ ✅ ❌ ✔ 等 emoji 字符作为「已包含 / 未计算」的标识；改用纯文字前缀如「（启用）」「（未计算）」「（未启用）」，让前端以一致视觉样式渲染。`;
+  const evidenceSystem = `${system}\n${EVIDENCE_PROTOCOL}`;
   try {
     const result = await invokeCompatibleModel({
       selection: input.modelConfig,
       maxTokens: input.module === "p1p12" ? 6000 : undefined,
       messages: [
-        { role: "system", content: system },
+        { role: "system", content: evidenceSystem },
         { role: "user", content: `以下是经过计算或用户提供的数据。请仅据此完成当前模块，并保留不确定性：\n\n${JSON.stringify(data, null, 2)}` },
       ],
     });
     const content = extractCompatibleText(result);
-    if (!content) return fallbackReport(input.module, input.chart);
-    if (input.module !== "p1p12" || hasCompleteP1P12Report(content, result.choices?.[0]?.finish_reason)) return content;
+    if (!content) return finaliseReport(fallbackReport(input.module, input.chart), input);
+    if (input.module !== "p1p12" || hasCompleteP1P12Report(content, result.choices?.[0]?.finish_reason)) return finaliseReport(content, input);
 
     console.warn("[Vedic] P1–P12 response was incomplete; retrying with compact full-report instructions");
     const retry = await invokeCompatibleModel({
       selection: input.modelConfig,
       maxTokens: 6000,
       messages: [
-        { role: "system", content: `${system}\n上一稿未能完整覆盖十二宫。现在请从头重写一份紧凑完整的 P1–P12 报告：必须包含从“### P1：”至“### P12：”的十二个标题，每宫最多 5 个简短条目；宁可压缩文字，也不能跳宫、停在半句或省略 P9–P12。` },
+        { role: "system", content: `${evidenceSystem}\n上一稿未能完整覆盖十二宫。现在请从头重写一份紧凑完整的 P1–P12 报告：必须包含从“### P1：”至“### P12：”的十二个标题，每宫最多 5 个简短条目；宁可压缩文字，也不能跳宫、停在半句或省略 P9–P12。` },
         { role: "user", content: `请仅使用以下数据重写完整 P1–P12 报告：\n\n${JSON.stringify(data, null, 2)}` },
       ],
     });
     const retryContent = extractCompatibleText(retry);
-    return retryContent && hasCompleteP1P12Report(retryContent, retry.choices?.[0]?.finish_reason)
+    return finaliseReport(retryContent && hasCompleteP1P12Report(retryContent, retry.choices?.[0]?.finish_reason)
       ? retryContent
-      : fallbackReport(input.module, input.chart);
+      : fallbackReport(input.module, input.chart), input);
   } catch (error) {
     console.error("[Vedic] AI analysis failed", error);
-    return fallbackReport(input.module, input.chart);
+    return finaliseReport(fallbackReport(input.module, input.chart), input);
   }
 }
 
@@ -147,15 +172,19 @@ export async function generateAnalysisStream(
     events: input.events || undefined,
     question: input.question || undefined,
     extraContext: input.extraContext || undefined,
+    systemEvidenceLedger: buildReportEvidenceLedger(input),
   };
   const system = `你是一名使用中文撰写、证据透明的吠陀占星研究助理。当前模块：${moduleTitle(input.module)}。${STACK_BOUNDARIES[input.stack]}
 模块协议：${MODULE_PROTOCOLS[input.module] || "先说人话，再写可复核的盘面证据、限制/反证与可验证问题。"}
 将盘面数据视为象征性解释框架，不要把推断包装为确定事实、诊断、治疗或绝对预测。不得编造缺失的天体、分盘、Dasha、KP cusp/sub-lord、出生事件、规则编号或数据源。
 	所有报告都必须有“数据与边界”一节，明确引用输入 audit.calculationScope 与 audit.excludedFromThisChart；再使用“盘面观察”“可能呈现”“限制/反证”“现实验证问题”四种标签。语言比例约为70%通俗解释、20%可核对证据、10%技术注释，术语第一次出现要翻译。
 	不要在列表项前使用 ✓ ✗ ✅ ❌ ✔ 等 emoji 字符作为「已包含 / 未计算」的标识；改用纯文字前缀如「（启用）」「（未计算）」「（未启用）」，让前端以一致视觉样式渲染。`;
+  const evidenceSystem = `${system}\n${EVIDENCE_PROTOCOL}`;
   const userMessage = `以下是经过计算或用户提供的数据。请仅据此完成当前模块，并保留不确定性：\n\n${JSON.stringify(data, null, 2)}`;
 
-  let emittedContent = "";
+  const evidenceLedger = buildReportEvidenceLedger(input);
+  let emittedContent = `${evidenceLedger}\n\n`;
+  onEvent({ type: "delta", text: emittedContent });
   const collect = async (messages: { role: "system" | "user" | "assistant"; content: unknown }[], maxTokens?: number, emit = true) => {
     let content = "";
     for await (const chunk of streamCompatibleModel({ selection: input.modelConfig, maxTokens, messages, signal })) {
@@ -171,7 +200,7 @@ export async function generateAnalysisStream(
 
   try {
     const firstPass = await collect([
-      { role: "system", content: system },
+      { role: "system", content: evidenceSystem },
       { role: "user", content: userMessage },
     ], input.module === "p1p12" ? 6000 : undefined);
     if (firstPass && input.module !== "p1p12") return firstPass;
@@ -179,7 +208,7 @@ export async function generateAnalysisStream(
 
     console.warn("[Vedic] P1–P12 response was incomplete; requesting only missing sections without clearing the stream");
     const retryContent = await collect([
-      { role: "system", content: `${system}\n上一稿已经显示给用户。只续写其中缺失的 P 宫标题和内容，绝不可重复“数据与边界”、已存在的标题或 P1–P8 等既有段落。每宫最多 5 个简短条目。` },
+      { role: "system", content: `${evidenceSystem}\n上一稿已经显示给用户。只续写其中缺失的 P 宫标题和内容，绝不可重复“数据与边界”、已存在的标题或 P1–P8 等既有段落。每宫最多 5 个简短条目。` },
       { role: "user", content: `原始数据：\n\n${JSON.stringify(data, null, 2)}` },
       { role: "assistant", content: firstPass },
       { role: "user", content: "请从第一个尚未输出的 P 宫继续，直到 P12。" },

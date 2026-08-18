@@ -2,13 +2,14 @@ import { TRPCError } from "@trpc/server";
 import type { Request, Response } from "express";
 import { prepareReportAnalysis, reportInputSchema } from "./routers";
 import { generateAnalysisStream, moduleTitle } from "./vedic";
+import { createStreamMetrics } from "./stream-metrics";
 
 /**
  * 流式报告端点：POST /api/stream/report
  * 以 SSE（text/event-stream）实时推送模型增量，事件负载为单行 JSON：
  *   {"type":"delta","text":"..."}    增量正文
- *   {"type":"restart"}                P1–P12 重试清屏
- *   {"type":"done","report":{...},...} 结束并携带完整报告与盘面
+ *   {"type":"restart"}                遗留兼容事件（当前不清屏）
+ *   {"type":"done","report":{...},"metrics":{...}} 结束并携带完整报告、盘面和无内容指标
  *   {"type":"error","message":"..."} 失败
  * 与 tRPC report.run 共享同一套校验与星盘构建逻辑（prepareReportAnalysis）。
  */
@@ -31,6 +32,7 @@ export async function handleReportStream(req: Request, res: Response) {
   res.on("error", () => { /* socket closed */ });
   res.flushHeaders?.();
   let sequence = 0;
+  const metrics = createStreamMetrics();
   let clientDisconnected = false;
   const disconnectController = new AbortController();
   const cancelIfDisconnected = () => {
@@ -66,17 +68,22 @@ export async function handleReportStream(req: Request, res: Response) {
     await generateAnalysisStream(analysis, event => {
       if (event.type === "delta") {
         resultMarkdown += event.text;
+        metrics.markDelta(event.text);
         emit({ type: "delta", text: event.text });
       } else if (event.type === "restart") {
         resultMarkdown = "";
+        metrics.markRestart();
         emit({ type: "restart" });
       } else {
+        const snapshot = metrics.snapshot();
+        console.info("[Stream] completed", snapshot);
         emit({
           type: "done",
           report: { ...report, resultMarkdown },
           previewChart: previewChart ?? null,
           rectification: rectification ?? null,
           synastry: synastry ?? null,
+          metrics: snapshot,
         });
       }
     }, disconnectController.signal);

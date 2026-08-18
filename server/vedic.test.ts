@@ -4,7 +4,7 @@ import { buildKp249Table, lookupKpSubLord } from "../shared/kp";
 import { buildRectificationCandidates, summarizeRectificationCandidates } from "../shared/rectification";
 import { calculateSynastry } from "../shared/synastry";
 import { selectSavedChart } from "../shared/chart-selection";
-import { buildP1P12Continuation, hasCompleteP1P12Report, moduleTitle } from "./vedic";
+import { buildP1P12Continuation, buildReportEvidenceLedger, hasCompleteP1P12Report, moduleTitle } from "./vedic";
 
 const testBirth = { name: "Test", date: "1990-08-15", time: "10:30", place: "Shanghai", latitude: 31.2304, longitude: 121.4737, timezoneOffset: 480, timeAccuracy: "精确到分钟" };
 
@@ -22,6 +22,7 @@ describe("vedic chart engine", () => {
     expect(chart.grahaDrishti.filter(item => item.sourcePlanet === "Saturn").map(item => item.aspectDistanceHouse).sort((a, b) => a - b)).toEqual([3, 7, 10]);
     expect(chart.grahaDrishti.every(item => item.targetHouse >= 1 && item.targetHouse <= 12)).toBe(true);
     expect(compactChartForPrompt(chart).grahaDrishti).toContain("Mars");
+    expect(compactChartForPrompt(chart).birth).toMatchObject({ latitude: 31.2304, longitude: 121.4737, timezoneOffsetMinutes: 480 });
     expect(chart.audit.source).toBe("direct_birth_input");
     expect(chart.audit.calculationScope).toContain("D1 whole-sign");
     expect(chart.audit.excludedFromThisChart).toContain("原生 MD/AD/PD");
@@ -71,6 +72,16 @@ describe("vedic chart engine", () => {
     expect(continuation).toContain("### P9：第9宫");
     expect(continuation).toContain("### P12：第12宫");
     expect(continuation).not.toContain("### P1：第1宫");
+  });
+
+  it("将输入时间质量、计算口径和未纳入项目固定写入报告依据", () => {
+    const chart = calculateVedicChart(testBirth);
+    const ledger = buildReportEvidenceLedger({ stack: "natal", module: "career", chart });
+
+    expect(ledger).toContain("计算依据与置信边界");
+    expect(ledger).toContain("精确到分钟");
+    expect(ledger).toContain("D1 whole-sign");
+    expect(ledger).toContain("原生 MD/AD/PD");
   });
 
   it("builds a complete ordered KP 1–249 sub-lord table", () => {

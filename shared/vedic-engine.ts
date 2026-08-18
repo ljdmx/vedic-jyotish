@@ -270,7 +270,7 @@ export function calculateTajikaChart(input: BirthInput, year: number) {
 
 export function compactChartForPrompt(chart: VedicChart) {
   return {
-    birth: { date: chart.birth.date, time: chart.birth.time, place: chart.birth.place, timeAccuracy: chart.birth.timeAccuracy || "未标注", timeSource: chart.birth.timeSource || "未追问", timeBasis: chart.birth.timeBasis || "unknown" },
+    birth: { date: chart.birth.date, time: chart.birth.time, place: chart.birth.place, latitude: chart.birth.latitude, longitude: chart.birth.longitude, timezoneOffsetMinutes: chart.birth.timezoneOffset, timeAccuracy: chart.birth.timeAccuracy || "未标注", timeSource: chart.birth.timeSource || "未追问", timeBasis: chart.birth.timeBasis || "unknown" },
     ayanamsa: chart.ayanamsa.name,
     lagna: `${chart.lagna.sign} ${chart.lagna.degreeInSign}° · ${chart.lagna.nakshatra} p${chart.lagna.pada}`,
     planets: chart.planets.map(p => `${p.name}: ${p.sign} ${p.degreeInSign}° H${p.house} · ${p.nakshatra} p${p.pada}`).join("; "),
