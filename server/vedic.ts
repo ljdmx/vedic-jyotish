@@ -111,7 +111,8 @@ export type AnalysisStreamEvent =
  */
 export async function generateAnalysisStream(
   input: Parameters<typeof generateAnalysis>[0],
-  onEvent: (event: AnalysisStreamEvent) => void
+  onEvent: (event: AnalysisStreamEvent) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   const data = {
     primaryChart: input.chart ? compactChartForPrompt(input.chart) : undefined,
@@ -130,7 +131,8 @@ export async function generateAnalysisStream(
 
   const collect = async (messages: { role: "system" | "user" | "assistant"; content: unknown }[], maxTokens?: number) => {
     let content = "";
-    for await (const chunk of streamCompatibleModel({ selection: input.modelConfig, maxTokens, messages })) {
+    for await (const chunk of streamCompatibleModel({ selection: input.modelConfig, maxTokens, messages, signal })) {
+      if (signal?.aborted) throw new Error("报告流已取消");
       content += chunk;
       onEvent({ type: "delta", text: chunk });
     }
@@ -158,13 +160,14 @@ export async function generateAnalysisStream(
     onEvent({ type: "delta", text: fallback });
     return fallback;
   } catch (error) {
+    if (signal?.aborted) throw error;
     console.error("[Vedic] AI streaming analysis failed", error);
     onEvent({ type: "restart" });
     const fallback = fallbackReport(input.module, input.chart);
     onEvent({ type: "delta", text: fallback });
     return fallback;
   } finally {
-    onEvent({ type: "done" });
+    if (!signal?.aborted) onEvent({ type: "done" });
   }
 }
 

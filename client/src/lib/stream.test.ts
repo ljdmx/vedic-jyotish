@@ -60,4 +60,41 @@ describe("浏览器侧报告流", () => {
     });
     expect(result).toContain("完成事件前中断");
   });
+
+  it("容错消费缺少末尾空行分隔的 done 事件", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([
+      'data: {"type":"delta","text":"尾部内容","sequence":1}\n\n',
+      'data: {"type":"done","report":{"id":1,"stack":"natal","title":"报告","resultMarkdown":"尾部内容","createdAt":"2026-01-01T00:00:00.000Z","persistence":"memory-only"},"previewChart":null,"rectification":null,"synastry":null,"sequence":2}',
+    ])));
+    const deltas: string[] = [];
+    const result = await new Promise<"done" | string>(resolve => {
+      streamReport({}, {
+        onDelta: text => deltas.push(text),
+        onRestart: () => undefined,
+        onDone: () => resolve("done"),
+        onError: message => resolve(message),
+      });
+    });
+    expect(result).toBe("done");
+    expect(deltas).toEqual(["尾部内容"]);
+  });
+
+  it("高频分块按 sequence 精确消费且不重复终态", async () => {
+    const events = Array.from({ length: 180 }, (_, index) => `data: {"type":"delta","text":"${index}","sequence":${index + 1}}\n\n`);
+    events.push('data: {"type":"done","report":{"id":1,"stack":"natal","title":"报告","resultMarkdown":"complete","createdAt":"2026-01-01T00:00:00.000Z","persistence":"memory-only"},"previewChart":null,"rectification":null,"synastry":null,"sequence":181}\n\n');
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse([events.join("")])));
+    const deltas: string[] = [];
+    const result = await new Promise<"done" | string>(resolve => {
+      streamReport({}, {
+        onDelta: text => deltas.push(text),
+        onRestart: () => undefined,
+        onDone: () => resolve("done"),
+        onError: message => resolve(message),
+      });
+    });
+    expect(result).toBe("done");
+    expect(deltas).toHaveLength(180);
+    expect(deltas[0]).toBe("0");
+    expect(deltas.at(-1)).toBe("179");
+  });
 });

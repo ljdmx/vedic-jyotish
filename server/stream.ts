@@ -31,7 +31,18 @@ export async function handleReportStream(req: Request, res: Response) {
   res.on("error", () => { /* socket closed */ });
   res.flushHeaders?.();
   let sequence = 0;
-  const emit = (payload: Record<string, unknown>) => writeSse(res, { ...payload, sequence: ++sequence });
+  let clientDisconnected = false;
+  const disconnectController = new AbortController();
+  const cancelIfDisconnected = () => {
+    if (res.writableEnded) return;
+    clientDisconnected = true;
+    disconnectController.abort();
+  };
+  req.once("aborted", cancelIfDisconnected);
+  res.once("close", cancelIfDisconnected);
+  const emit = (payload: Record<string, unknown>) => {
+    if (!clientDisconnected && !res.writableEnded) writeSse(res, { ...payload, sequence: ++sequence });
+  };
 
   let input;
   try {
@@ -68,9 +79,10 @@ export async function handleReportStream(req: Request, res: Response) {
           synastry: synastry ?? null,
         });
       }
-    });
-    res.end();
+    }, disconnectController.signal);
+    if (!clientDisconnected) res.end();
   } catch (error) {
+    if (clientDisconnected || disconnectController.signal.aborted) return;
     if (error instanceof TRPCError) {
       emit({ type: "error", message: error.message });
     } else {
@@ -78,5 +90,8 @@ export async function handleReportStream(req: Request, res: Response) {
       emit({ type: "error", message: "生成报告时出现异常，请稍后重试" });
     }
     res.end();
+  } finally {
+    req.off("aborted", cancelIfDisconnected);
+    res.off("close", cancelIfDisconnected);
   }
 }

@@ -6,6 +6,7 @@ type CompatibleRequest = {
   messages: CompatibleMessage[];
   maxTokens?: number;
   responseFormat?: unknown;
+  signal?: AbortSignal;
 };
 type CompatibleTextPart = { type?: unknown; text?: unknown; content?: unknown };
 type CompatibleContent = string | CompatibleTextPart[];
@@ -123,6 +124,9 @@ function extractDeltaText(delta: unknown): string {
 export async function* streamCompatibleModel(request: CompatibleRequest): AsyncGenerator<string> {
   const selection = resolveModelSelection(request.selection);
   const controller = new AbortController();
+  const cancelUpstream = () => controller.abort();
+  if (request.signal?.aborted) cancelUpstream();
+  else request.signal?.addEventListener("abort", cancelUpstream, { once: true });
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let sawDone = false;
   const armIdle = () => {
@@ -131,6 +135,7 @@ export async function* streamCompatibleModel(request: CompatibleRequest): AsyncG
   };
   armIdle();
   try {
+    if (controller.signal.aborted) throw new Error("模型流请求已取消");
     const response = await fetch(`${selection.baseUrl}/chat/completions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${selection.apiKey}`, "Content-Type": "application/json" },
@@ -151,11 +156,14 @@ export async function* streamCompatibleModel(request: CompatibleRequest): AsyncG
     let buffer = "";
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
-      armIdle();
-      buffer += decoder.decode(value, { stream: true });
-      const { remaining, events } = extractSseEvents(buffer);
-      buffer = remaining;
+      if (done) buffer += decoder.decode();
+      else {
+        armIdle();
+        buffer += decoder.decode(value, { stream: true });
+      }
+      // 兼容少数网关关闭连接前遗漏末尾空行的情况，仍应消费已接收的终态块。
+      const { remaining, events } = extractSseEvents(done ? `${buffer}\n\n` : buffer);
+      buffer = done ? "" : remaining;
       for (const raw of events) {
         if (!raw) continue;
         if (raw === "[DONE]") {
@@ -171,9 +179,11 @@ export async function* streamCompatibleModel(request: CompatibleRequest): AsyncG
         const text = extractDeltaText(parsed.choices?.[0]?.delta);
         if (text) yield text;
       }
+      if (done) break;
     }
     if (!sawDone) throw new Error("模型流在完成标记前中断");
   } finally {
     if (idleTimer) clearTimeout(idleTimer);
+    request.signal?.removeEventListener("abort", cancelUpstream);
   }
 }

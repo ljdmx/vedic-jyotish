@@ -86,12 +86,7 @@ export function streamReport(payload: Record<string, unknown>, handlers: StreamR
       let buffer = "";
       let lastSequence = 0;
       let terminalEvent = false;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const { remaining, events } = parseSseEvents(buffer);
-        buffer = remaining;
+      const consumeEvents = (events: string[]) => {
         for (const event of events) {
           if (!event || terminalEvent) continue;
           let parsed: Record<string, unknown>;
@@ -115,6 +110,20 @@ export function streamReport(payload: Record<string, unknown>, handlers: StreamR
             handlers.onError(typeof parsed.message === "string" ? parsed.message : "生成报告时出现异常");
           }
         }
+      };
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          // 容错处理：部分兼容网关会在最后一个 SSE 块缺少空行分隔时直接关闭连接。
+          // 以虚拟分隔符清空剩余缓冲，避免已到达的 done/error 事件被误判为截断。
+          buffer += decoder.decode();
+          if (buffer.trim()) consumeEvents(parseSseEvents(`${buffer}\n\n`).events);
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const { remaining, events } = parseSseEvents(buffer);
+        buffer = remaining;
+        consumeEvents(events);
       }
       if (!terminalEvent && !controller.signal.aborted) handlers.onError("模型流在完成事件前中断，请重试");
     } catch (error) {

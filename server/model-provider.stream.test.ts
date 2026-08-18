@@ -47,4 +47,33 @@ describe("兼容模型流式完成状态", () => {
       'data: {"choices":[{"delta":{"content":"不完整"}}]}\n\n',
     ], selection)).rejects.toThrow("完成标记前中断");
   });
+
+  it.each(providers)("%s 容错接收缺少末尾空行的 [DONE]", async ({ selection }) => {
+    await expect(collectStream([
+      'data: {"choices":[{"delta":{"content":"末尾"}}]}\n\n',
+      "data: [DONE]",
+    ], selection)).resolves.toBe("末尾");
+  });
+
+  it("将下游取消信号传播到上游模型请求", async () => {
+    const downstream = new AbortController();
+    let upstreamSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      upstreamSignal = init?.signal as AbortSignal;
+      upstreamSignal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const iterator = streamCompatibleModel({
+      selection: providers[0].selection,
+      messages: [{ role: "user", content: "test" }],
+      signal: downstream.signal,
+    });
+    const next = iterator.next();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    downstream.abort();
+
+    await expect(next).rejects.toThrow();
+    expect(upstreamSignal?.aborted).toBe(true);
+  });
 });
